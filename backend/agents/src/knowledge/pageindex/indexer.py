@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import mimetypes
 import re
@@ -155,6 +156,94 @@ class _StructuredInvokeResult:
     attempts: int
 
 
+class _PlainJsonStructuredModel:
+    def __init__(self, model: Any, schema: Any) -> None:
+        self._model = model
+        self._schema = schema
+        self._schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+
+    def invoke(self, messages: list) -> Any:
+        response = self._model.invoke(self._messages(messages))
+        return self._parse_response(response)
+
+    async def ainvoke(self, messages: list) -> Any:
+        response = await self._model.ainvoke(self._messages(messages))
+        return self._parse_response(response)
+
+    def _messages(self, messages: list) -> list:
+        # The llm_wiki ingest path uses plain text generation rather than
+        # provider tool calls. Keep PageIndex summaries on the same contract so
+        # OpenAI-compatible DeepSeek endpoints that reject `tool_choice` do not
+        # degrade every node.
+        return [
+            *messages,
+            HumanMessage(
+                content=(
+                    "Return only one valid JSON object matching this schema. "
+                    "Do not wrap it in markdown or add any prose.\n\n"
+                    f"{self._schema_json}"
+                )
+            ),
+        ]
+
+    def _parse_response(self, response: Any) -> Any:
+        text = _message_content_to_text(getattr(response, "content", response)).strip()
+        payload = _extract_json_object(text)
+        return self._schema.model_validate(payload)
+
+
+def _message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                value = item.get("text") or item.get("content")
+                if isinstance(value, str):
+                    parts.append(value)
+        return "\n".join(parts)
+    return str(content or "")
+
+
+def _extract_json_object(text: str) -> Any:
+    cleaned = text.strip()
+    fence_match = re.match(r"^```(?:json)?\s*\n(?P<body>[\s\S]*?)\n```\s*$", cleaned, re.IGNORECASE)
+    if fence_match:
+        cleaned = fence_match.group("body").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError("Model response did not contain a JSON object.")
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(cleaned[start:], start=start):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(cleaned[start : index + 1])
+    raise ValueError("Model response contained an unterminated JSON object.")
+
+
 def _invoke_structured_with_retry(
     structured_model: Any,
     messages: list,
@@ -216,9 +305,9 @@ def _model_bundle(model_name: str | None) -> _ModelBundle:
     model_config = require_enabled_model(model_name)
     model = create_chat_model(name=model_name, thinking_enabled=False, temperature=0)
     return _ModelBundle(
-        summary_model=model.with_structured_output(NodeSummaryOutput),
-        description_model=model.with_structured_output(DocumentDescriptionOutput),
-        heading_page_model=model.with_structured_output(HeadingPagePrediction),
+        summary_model=_PlainJsonStructuredModel(model, NodeSummaryOutput),
+        description_model=_PlainJsonStructuredModel(model, DocumentDescriptionOutput),
+        heading_page_model=_PlainJsonStructuredModel(model, HeadingPagePrediction),
         summary_supports_vision=bool(model_config and model_config.supports_vision),
     )
 

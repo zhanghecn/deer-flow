@@ -24,10 +24,8 @@ LLM_WIKI_DIR = ".llm-wiki"
 MAX_SEARCH_RESULTS = 20
 SNIPPET_CONTEXT = 80
 RRF_K = 60
-MAX_GENERATED_CONCEPT_PAGES = 48
 MAX_SOURCE_STRUCTURE_NODES = 120
 MAX_SOURCE_TEXT_PREVIEW_CHARS = 80_000
-MAX_CONCEPT_BODY_CHARS = 6_000
 FILENAME_EXACT_BONUS = 200
 PHRASE_IN_TITLE_BONUS = 50
 PHRASE_IN_CONTENT_PER_OCC = 20
@@ -227,12 +225,6 @@ def sync_indexed_document_to_workspace(
     slug = source_slug(job.display_name, job.document_id)
     raw_cache_path = f"raw/sources/.cache/{slug}.txt"
     source_page_path = f"wiki/sources/{slug}.md"
-    pages = _build_wiki_pages_for_indexed_document(
-        job=job,
-        indexed_document=indexed_document,
-        source_id=slug,
-        raw_cache_path=raw_cache_path,
-    )
     generated_pages = llm_generated_pages
     if generated_pages is None and llm_ingest_enabled:
         generated_pages = _generate_llm_wiki_pages(
@@ -243,6 +235,14 @@ def sync_indexed_document_to_workspace(
             source_page_path=source_page_path,
             observer=observer,
         )
+    pages = _build_wiki_pages_for_indexed_document(
+        job=job,
+        indexed_document=indexed_document,
+        source_id=slug,
+        raw_cache_path=raw_cache_path,
+        source_page_path=source_page_path,
+        llm_generated_pages=generated_pages or {},
+    )
     shared_written_paths = _merge_generated_pages(
         store=store,
         workspace=workspace,
@@ -271,8 +271,13 @@ def sync_indexed_document_to_workspace(
         content_sha256=content_sha256,
         files_written=files_written,
     )
-    _rewrite_workspace_overview(store=store, workspace=workspace)
-    _append_workspace_log(store=store, workspace=workspace, job=job, files_written=files_written)
+    _rewrite_workspace_overview_if_needed(
+        store=store,
+        workspace=workspace,
+        generated_paths=set(generated_pages or {}),
+    )
+    if "wiki/log.md" not in (generated_pages or {}):
+        _append_workspace_log(store=store, workspace=workspace, job=job, files_written=files_written)
     return files_written
 
 
@@ -358,6 +363,14 @@ def _merge_generated_pages(
     today = time.strftime("%Y-%m-%d")
     for path in sorted(generated_pages):
         content = generated_pages[path]
+        if path == "wiki/log.md":
+            _append_generated_log(store=store, workspace=workspace, content=content)
+            written_paths.append(path)
+            continue
+        if path in {"wiki/index.md", "wiki/overview.md"}:
+            store.write_text(workspace, path, content.rstrip() + "\n")
+            written_paths.append(path)
+            continue
         try:
             existing = store.read_text(workspace, path)
         except FileNotFoundError:
@@ -371,6 +384,20 @@ def _merge_generated_pages(
         store.write_text(workspace, path, merged)
         written_paths.append(path)
     return written_paths
+
+
+def _append_generated_log(*, store: KnowledgeWorkspaceStore, workspace: KnowledgeWorkspaceRecord, content: str) -> None:
+    try:
+        existing = store.read_text(workspace, "wiki/log.md").rstrip()
+    except FileNotFoundError:
+        existing = _frontmatter("Log", "log", []) + "# Log"
+    # llm_wiki asks the model to emit just the new log entry; if a provider
+    # returns a full page anyway, append only the body so log frontmatter stays
+    # single-owner and append-only.
+    entry = _frontmatter_body_text(content).strip() if _frontmatter_match(content) else content.strip()
+    if not entry:
+        return
+    store.write_text(workspace, "wiki/log.md", existing + "\n\n" + entry + "\n")
 
 
 def search_workspaces(
@@ -602,7 +629,8 @@ def extract_type(content: str) -> str:
 
 
 def source_slug(display_name: str, document_id: str) -> str:
-    stem = PurePosixPath(str(display_name or "source")).stem
+    source_path = PurePosixPath(str(display_name or "source").replace("\\", "/"))
+    stem = source_path.with_suffix("").as_posix()
     slug = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff\u3400-\u4dbf]+", "-", stem).strip("-").lower()
     if not slug:
         slug = "source"
@@ -615,21 +643,30 @@ def _build_wiki_pages_for_indexed_document(
     indexed_document: IndexedDocument,
     source_id: str,
     raw_cache_path: str,
+    source_page_path: str,
+    llm_generated_pages: dict[str, str],
 ) -> dict[str, str]:
-    concept_pages = _build_concept_pages_for_source(
-        job=job,
-        indexed_document=indexed_document,
-        source_id=source_id,
-    )
-    source_page_path = f"wiki/sources/{source_id}.md"
-    pages = {source_page_path: _build_source_page(
+    pages = dict(llm_generated_pages)
+    if source_page_path in pages:
+        pages[source_page_path] = _ensure_source_page_metadata(
+            content=pages[source_page_path],
+            job=job,
+            source_id=source_id,
+            raw_cache_path=raw_cache_path,
+        )
+        return pages
+
+    # PageIndex remains the evidence extractor. It no longer emits faux
+    # concept pages because those polluted the llm-wiki graph with
+    # per-section retrieval scaffolding. When the LLM does not produce a
+    # source page, write one narrow evidence entry point so raw excerpts stay
+    # reachable through get_source_evidence.
+    pages[source_page_path] = _build_source_page(
         job=job,
         indexed_document=indexed_document,
         source_id=source_id,
         raw_cache_path=raw_cache_path,
-        concept_paths=sorted(concept_pages),
-    )}
-    pages.update(concept_pages)
+    )
     return pages
 
 
@@ -639,7 +676,6 @@ def _build_source_page(
     indexed_document: IndexedDocument,
     source_id: str,
     raw_cache_path: str,
-    concept_paths: list[str],
 ) -> str:
     sources = [job.file_name]
     today = time.strftime("%Y-%m-%d")
@@ -651,19 +687,16 @@ def _build_source_page(
             "created": today,
             "updated": today,
             "tags": [],
-            "related": [PurePosixPath(path).stem for path in concept_paths],
+            "related": [],
             "document_id": job.document_id,
         },
     )
     node_lines = []
-    concept_stems = {PurePosixPath(path).stem for path in concept_paths}
     for node in indexed_document.nodes[:MAX_SOURCE_STRUCTURE_NODES]:
         label = node.title.strip() or node.node_id
         locator = f"p.{node.page_start}" if node.page_start else f"line {node.line_start}" if node.line_start else node.node_id
         summary = node.summary or node.visual_summary or node.prefix_summary or ""
-        concept_id = _concept_page_id(source_id=source_id, node_title=label, node_id=node.node_id)
-        prefix = f"[[{concept_id}|{label}]]" if concept_id in concept_stems else f"**{label}**"
-        node_lines.append(f"- {prefix} ({locator}): {summary}".rstrip())
+        node_lines.append(f"- **{label}** ({locator}): {summary}".rstrip())
     canonical_excerpt = indexed_document.canonical_markdown.strip()
     if len(canonical_excerpt) > MAX_SOURCE_TEXT_PREVIEW_CHARS:
         canonical_excerpt = (
@@ -676,7 +709,6 @@ def _build_source_page(
         f"Original file: `{job.file_name}`\n\n"
         f"Raw cache: `{raw_cache_path}`\n\n"
         f"{indexed_document.doc_description or ''}\n\n"
-        + ("## Derived Wiki Pages\n\n" + "\n".join(f"- [[{PurePosixPath(path).stem}]]" for path in concept_paths) + "\n\n" if concept_paths else "")
         + "## Structure\n\n"
         + ("\n".join(node_lines) if node_lines else "No structured nodes were produced.")
         + "\n\n## Extracted Text Preview\n\n"
@@ -685,98 +717,32 @@ def _build_source_page(
     )
 
 
-def _build_concept_pages_for_source(
+SOURCE_EVIDENCE_MARKER = "<!-- openagents:source-evidence -->"
+
+
+def _ensure_source_page_metadata(
     *,
+    content: str,
     job: QueuedKnowledgeBuildJob,
-    indexed_document: IndexedDocument,
     source_id: str,
-) -> dict[str, str]:
-    pages: dict[str, str] = {}
-    for node in _select_concept_nodes(indexed_document):
-        title = node.title.strip() or node.node_id
-        page_id = _concept_page_id(source_id=source_id, node_title=title, node_id=node.node_id)
-        path = f"wiki/concepts/{page_id}.md"
-        pages[path] = _build_concept_page(
-            job=job,
-            node=node,
-            source_id=source_id,
-            title=title,
-        )
-    return pages
-
-
-def _select_concept_nodes(indexed_document: IndexedDocument) -> list[Any]:
-    selected = []
-    seen_titles: set[str] = set()
-    for node in indexed_document.nodes:
-        title = node.title.strip() or node.node_id
-        title_key = title.casefold()
-        summary = node.summary or node.visual_summary or node.prefix_summary or node.node_text
-        if not summary or title_key in seen_titles:
-            continue
-        if node.depth > 2 and len(selected) >= 12:
-            continue
-        seen_titles.add(title_key)
-        selected.append(node)
-        if len(selected) >= MAX_GENERATED_CONCEPT_PAGES:
-            break
-    return selected
-
-
-def _build_concept_page(
-    *,
-    job: QueuedKnowledgeBuildJob,
-    node: Any,
-    source_id: str,
-    title: str,
+    raw_cache_path: str,
 ) -> str:
-    today = time.strftime("%Y-%m-%d")
-    summary = node.summary or node.prefix_summary or ""
-    visual_summary = node.visual_summary or ""
-    locator = f"p.{node.page_start}" if node.page_start else f"line {node.line_start}" if node.line_start else node.node_id
-    excerpt = (node.node_text or "").strip()
-    if len(excerpt) > MAX_CONCEPT_BODY_CHARS:
-        excerpt = excerpt[:MAX_CONCEPT_BODY_CHARS].rstrip() + "\n\n[Truncated; inspect source evidence for full text.]"
-    body_parts = [
-        f"# {title}",
-        "",
-        f"Source: [[{source_id}|{job.file_name}]]",
-        "",
-        f"Locator: `{locator}`",
-        "",
-    ]
-    if summary:
-        body_parts.extend(["## Summary", "", summary, ""])
-    if visual_summary:
-        body_parts.extend(["## Visual Evidence", "", visual_summary, ""])
-    if excerpt:
-        body_parts.extend(["## Source Excerpt", "", excerpt, ""])
-    return (
-        _frontmatter(
-            title,
-            "concept",
-            [job.file_name],
-            extra={
-                "created": today,
-                "updated": today,
-                "tags": [],
-                "related": [source_id],
-                "source_node_id": node.node_id,
-            },
-        )
-        + "\n".join(body_parts).rstrip()
-        + "\n"
+    section = (
+        f"{SOURCE_EVIDENCE_MARKER}\n"
+        "## Source Evidence\n\n"
+        f"- Original file: `{job.file_name}`\n"
+        f"- Raw cache: `{raw_cache_path}`\n"
+        f"- Source id: `{source_id}`\n"
+        f"{SOURCE_EVIDENCE_MARKER}"
     )
-
-
-def _concept_page_id(*, source_id: str, node_title: str, node_id: str) -> str:
-    base = _slugify_wiki_id(node_title) or _slugify_wiki_id(node_id) or "section"
-    return f"{source_id}--{base[:80]}"
-
-
-def _slugify_wiki_id(value: str) -> str:
-    slug = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff\u3400-\u4dbf]+", "-", str(value or "")).strip("-").lower()
-    return slug or "page"
+    # The marker keeps OpenAgents-owned evidence metadata idempotent while the
+    # model remains responsible for the domain summary above it.
+    stripped = re.sub(
+        rf"\n*{re.escape(SOURCE_EVIDENCE_MARKER)}[\s\S]*?{re.escape(SOURCE_EVIDENCE_MARKER)}\n*",
+        "\n\n",
+        content.rstrip(),
+    ).rstrip()
+    return stripped + "\n\n" + section + "\n"
 
 
 def _frontmatter(title: str, page_type: str, sources: list[str], extra: dict[str, Any] | None = None) -> str:
@@ -843,6 +809,8 @@ def _delete_stale_cached_files(
     for path in previous_files:
         if not isinstance(path, str) or path in keep:
             continue
+        if path in {"wiki/index.md", "wiki/overview.md", "wiki/log.md"}:
+            continue
         # Source-owned paths are safe to delete outright. Shared entity/concept
         # pages may be contributed by multiple source ingests, so stale cleanup
         # removes only this source from frontmatter and deletes the page only
@@ -887,30 +855,99 @@ def _remove_source_from_shared_page(
     store.write_text(workspace, path, updated)
 
 
-def _rewrite_workspace_overview(*, store: KnowledgeWorkspaceStore, workspace: KnowledgeWorkspaceRecord) -> None:
+def _rewrite_workspace_overview_if_needed(
+    *,
+    store: KnowledgeWorkspaceStore,
+    workspace: KnowledgeWorkspaceRecord,
+    generated_paths: set[str],
+) -> None:
+    if "wiki/index.md" in generated_paths and "wiki/overview.md" in generated_paths:
+        return
+
     pages = store.list_wiki_pages(workspace)
     # Multi-document workspaces rewrite the overview after each source ingest;
     # sort by path because WikiPage is a value object with no natural ordering.
     source_pages = sorted((page for page in pages if page.path.startswith("wiki/sources/")), key=lambda page: page.path)
     concept_pages = sorted((page for page in pages if page.path.startswith("wiki/concepts/")), key=lambda page: page.path)
-    index_lines = [_frontmatter("Index", "index", []), "# Index\n", "## Sources\n"]
-    for page in source_pages:
-        title = extract_title(page.content, PurePosixPath(page.path).name)
-        index_lines.append(f"- [[{PurePosixPath(page.path).stem}|{title}]] (`{page.path}`)")
-    if concept_pages:
-        index_lines.append("\n## Concepts\n")
-        for page in concept_pages:
+    entity_pages = sorted((page for page in pages if page.path.startswith("wiki/entities/")), key=lambda page: page.path)
+    comparison_pages = sorted((page for page in pages if page.path.startswith("wiki/comparisons/")), key=lambda page: page.path)
+    synthesis_pages = sorted((page for page in pages if page.path.startswith("wiki/synthesis/")), key=lambda page: page.path)
+
+    index_lines = [_frontmatter("Index", "index", []), "# Index\n"]
+    for section_title, section_pages in [
+        ("Sources", source_pages),
+        ("Entities", entity_pages),
+        ("Concepts", concept_pages),
+        ("Comparisons", comparison_pages),
+        ("Synthesis", synthesis_pages),
+    ]:
+        if not section_pages:
+            continue
+        index_lines.extend(["", f"## {section_title}", ""])
+        for page in section_pages:
             title = extract_title(page.content, PurePosixPath(page.path).name)
-            index_lines.append(f"- [[{PurePosixPath(page.path).stem}|{title}]] (`{page.path}`)")
-    overview = (
-        _frontmatter("Overview", "overview", [])
-        + "# Overview\n\n"
-        + f"- Wiki pages: {len(pages)}\n"
-        + f"- Source pages: {len(source_pages)}\n"
-        + f"- Concept pages: {len(concept_pages)}\n"
-    )
-    store.write_text(workspace, "wiki/index.md", "\n".join(index_lines).rstrip() + "\n")
-    store.write_text(workspace, "wiki/overview.md", overview)
+            summary = _page_index_summary(page.content)
+            suffix = f" — {summary}" if summary else ""
+            index_lines.append(f"- [[{PurePosixPath(page.path).stem}|{title}]] (`{page.path}`){suffix}")
+
+    overview_lines = [
+        _frontmatter("Overview", "overview", []),
+        "# Overview",
+        "",
+        f"{workspace.name} contains {len(source_pages)} source page(s), {len(concept_pages)} concept page(s), "
+        f"{len(entity_pages)} entity page(s), {len(comparison_pages)} comparison page(s), and {len(synthesis_pages)} synthesis page(s).",
+        "",
+    ]
+    overview_lines.extend(_overview_section("Source Coverage", source_pages, limit=12))
+    overview_lines.extend(_overview_section("Core Concepts", concept_pages, limit=16))
+    overview_lines.extend(_overview_section("Entities", entity_pages, limit=12))
+    overview_lines.extend(_overview_section("Synthesis", synthesis_pages, limit=8))
+
+    # llm-wiki treats index/overview as model-maintained wiki files. The
+    # deterministic fallback is only used when a provider omitted either page,
+    # so successful compiled overviews are not overwritten by a path catalog.
+    if "wiki/index.md" not in generated_paths:
+        store.write_text(workspace, "wiki/index.md", "\n".join(index_lines).rstrip() + "\n")
+    if "wiki/overview.md" not in generated_paths:
+        store.write_text(workspace, "wiki/overview.md", "\n".join(overview_lines).rstrip() + "\n")
+
+
+def _overview_section(title: str, pages: list[WikiPage], *, limit: int) -> list[str]:
+    if not pages:
+        return []
+    lines = [f"## {title}", ""]
+    for page in pages[:limit]:
+        page_title = extract_title(page.content, PurePosixPath(page.path).name)
+        summary = _page_index_summary(page.content)
+        suffix = f": {summary}" if summary else ""
+        lines.append(f"- [[{PurePosixPath(page.path).stem}|{page_title}]]{suffix}")
+    if len(pages) > limit:
+        lines.append(f"- ... {len(pages) - limit} more page(s)")
+    lines.append("")
+    return lines
+
+
+def _page_index_summary(content: str) -> str:
+    body = FRONTMATTER_RE.sub("", content, count=1).strip()
+    lines: list[str] = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("---"):
+            continue
+        if line.startswith("Original file:") or line.startswith("Raw cache:"):
+            continue
+        line = re.sub(r"\s+", " ", line)
+        lines.append(line)
+        if sum(len(item) for item in lines) > 260:
+            break
+    return _trim_excerpt(" ".join(lines), 260)
+
+
+def _trim_excerpt(text: str, limit: int) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit].rstrip() + "..."
 
 
 def _append_workspace_log(
@@ -945,13 +982,13 @@ def _build_graph_for_workspace(
             "type": node_type,
             "path": page.path,
             "sources": _extract_sources(page.content),
-            "links": WIKILINK_RE.findall(page.content),
+            "links": _extract_workspace_links(page.content),
             "out": set(),
             "in": set(),
         }
     for source_id, node in raw_nodes.items():
         for raw_link in node["links"]:
-            target_id = _resolve_link_target(raw_link, raw_nodes.keys())
+            target_id = _resolve_link_target(raw_link, raw_nodes)
             if target_id and target_id != source_id:
                 node["out"].add(target_id)
                 raw_nodes[target_id]["in"].add(source_id)
@@ -1144,6 +1181,17 @@ def _frontmatter_body(content: str) -> str:
     return match.group("body") if match else ""
 
 
+def _frontmatter_match(content: str) -> re.Match[str] | None:
+    return FRONTMATTER_RE.match(content or "")
+
+
+def _frontmatter_body_text(content: str) -> str:
+    match = _frontmatter_match(content)
+    if not match:
+        return content
+    return content[match.end() :].lstrip("\n")
+
+
 def _extract_sources(content: str) -> list[str]:
     fm = _frontmatter_body(content)
     sources: list[str] = []
@@ -1159,16 +1207,48 @@ def _extract_sources(content: str) -> list[str]:
     return list(dict.fromkeys(sources))
 
 
-def _resolve_link_target(raw: str, node_ids: Any) -> str | None:
+def _extract_workspace_links(content: str) -> list[str]:
+    """Return body wikilinks plus normalized frontmatter related slugs.
+
+    llm_wiki primarily expects relationship edges to appear as body
+    `[[wikilink]]` references. Provider output can still put those relations
+    only in `related`, so the graph treats normalized `related` values as
+    curated edges instead of relying on malformed YAML wikilinks.
+    """
+
+    links = list(WIKILINK_RE.findall(content))
+    fm = _frontmatter_body(content)
+    related_match = re.search(r"^related:\s*\[([^\]]*)\]", fm, re.MULTILINE)
+    if related_match:
+        links.extend(item.strip().strip("\"'") for item in related_match.group(1).split(",") if item.strip())
+    related_block_match = re.search(r"^related:\s*\n((?:\s+-\s+.+\n?)*)", fm, re.MULTILINE)
+    if related_block_match:
+        for line in related_block_match.group(1).splitlines():
+            links.append(re.sub(r"^\s+-\s+", "", line).strip().strip("\"'"))
+    return list(dict.fromkeys(link for link in links if link))
+
+
+def _resolve_link_target(raw: str, nodes: dict[str, dict[str, Any]]) -> str | None:
     raw_text = str(raw or "").strip()
-    if raw_text in node_ids:
+    if raw_text in nodes:
         return raw_text
     normalized = raw_text.lower().replace(" ", "-")
-    for node_id in node_ids:
+    normalized_key = _link_resolution_key(raw_text)
+    for node_id, node in nodes.items():
         node_lower = str(node_id).lower()
         if node_lower == normalized or node_lower == raw_text.lower() or node_lower.replace(" ", "-") == normalized:
             return str(node_id)
+        # Providers sometimes use the display title in `related` while the
+        # actual page filename uses punctuation-normalized slugs. Resolve both
+        # through the same coarse key so curated graph edges survive.
+        label = str(node.get("label") or "")
+        if normalized_key and normalized_key in {_link_resolution_key(str(node_id)), _link_resolution_key(label)}:
+            return str(node_id)
     return None
+
+
+def _link_resolution_key(value: str) -> str:
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
 
 
 def _token_match_score(text: str, tokens: list[str]) -> int:

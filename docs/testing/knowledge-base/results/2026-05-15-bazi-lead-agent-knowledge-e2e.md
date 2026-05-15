@@ -126,3 +126,108 @@ OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh
 ## 后续修正
 
 - lead_agent 在创建说明中曾把 `get_workspace_file_tree` 描述成“原 get_document_tree”，该说法不准确；已在该测试 agent 的 dev/prod 运行时 `AGENTS.md` 中修正为：不要使用旧 PageTree 工具 `get_document_tree` 作为默认链路，`get_workspace_file_tree` 仅用于导航/审计，不作为问答首步。
+
+## r4 llm-wiki 对齐复测
+
+日期：2026-05-15 18:19 Asia/Shanghai
+
+### 目标
+
+复测彻底切到 Wiki Workspace 后，单 source 编译出的 `related` 关系是否能进入浏览器图谱和 agent 问答链路，避免图谱只剩 `index.md` 星型边或 agent 回退旧 PageTree 工具。
+
+### 环境
+
+- App：`http://127.0.0.1:8083`
+- Admin：`http://127.0.0.1:8081`
+- Deploy 栈：`deploy/docker-compose.yml`
+- Browser：`playwright-cli -s=openagents-kb-headed --headed --browser=chrome`
+- Agent：`bazi-mingli-e2e-20260515`
+- Chat thread：`ee14957c-6f5b-48f6-928a-895544ad7229`
+- Trace：`be16ccb3-eaa1-416a-b5ca-fbe30ffe1471`
+- Knowledge base：`bazi-cases-llm-wiki-e2e-20260515-r4`
+- Knowledge base id：`6a34fdc8-925c-4bef-a8d5-4d572db7784e`
+- Source：`cases.md`
+
+### 编译产物抽检
+
+- `wiki/overview.md` 是领域总结，不是路径清单。
+- `wiki/index.md` 是 llm-wiki 风格索引。
+- `wiki/sources/cases-fed55783.md` 保存源摘要与 OpenAgents source evidence marker。
+- `raw/sources/.cache/cases-fed55783.txt` 保存原始抽取文本，可被 `get_source_evidence` 精确检索。
+
+### Graph 复测
+
+旧问题：API 只有 `index -> page` 边，前端默认隐藏结构页后显示 `0 / 11 edges rendered`。
+
+修复后结果：
+
+- Graph API：`14` nodes，`44` edges，其中包含非结构边，例如：
+  - `壬寅日柱 -> 巾箱秘术`
+  - `壬寅日柱 -> 巾箱诀法`
+  - `壬寅日柱 -> 字碰字`
+  - `cases-fed55783 -> 壬寅日柱`
+- 8083 Graph tab：`14 graph nodes`，`11 / 14 pages`，`33 / 44 edges rendered`。
+- 右侧 Edge list 可见实体、概念、source 之间的关系边。
+
+### Agent 问答复测
+
+在 8083 真实浏览器中给线程绑定 r4 知识库后提问：
+
+> 请只基于当前已绑定的 bazi-cases-llm-wiki-e2e-20260515-r4 知识库，检索并回答：壬寅日主丑月出生的案例有哪些？请列出案例编号、四柱、性别、关键断语，并说明你引用的 wiki/source 路径。
+
+观察到工具链：
+
+- `search_knowledge_workspace`
+  - query：`壬寅日 丑月 案例`
+  - workspace：`6a34fdc8-925c-4bef-a8d5-4d572db7784e`
+- `get_wiki_page`
+  - `wiki/sources/cases-fed55783.md`
+- `get_source_evidence`
+  - query：`壬寅日元丑月生`
+- `get_source_evidence`
+  - query：`壬寅 丑月 斗牛箕星`
+
+未观察到旧工具 `get_document_tree`。
+
+### 回答结果
+
+agent 基于 r4 知识库找到 3 个壬寅日主丑月案例：
+
+- 案例35（例153）：`己酉 丁丑 壬寅 戊申`，女（坤造）。断语包含“壬寅日元丑月生，斗牛箕星论壬命；勾陈碰己大不吉，婚姻几重多晦气。”
+- 案例36（例154）：`壬戌 癸丑 壬寅 辛亥`，女（坤造）。断语包含“水星叠叠克六亲，几经磨难无需论。”
+- 案例37（例155）：`庚寅 己丑 壬寅 辛亥`，男（乾造）。断语包含“双寅入局生性灵，金水相涵学问通。”
+
+引用路径：
+
+- Wiki：`wiki/sources/cases-fed55783.md`
+- 原始缓存：`raw/sources/.cache/cases-fed55783.txt`
+
+### Admin Audit
+
+8081 Observability 最新 trace 显示：
+
+- registered tools：`search_knowledge_workspace`、`get_wiki_page`、`get_source_evidence`
+- events：1 次 `search_knowledge_workspace`、1 次 `get_wiki_page`、2 次 `get_source_evidence`
+- 未出现 `get_document_tree`
+
+### 验证命令
+
+```bash
+uv run --project backend/agents pytest backend/agents/tests/test_wiki_workspace.py backend/agents/tests/test_knowledge_runtime.py backend/agents/tests/test_tools_runtime_loading.py -q
+uv run --project backend/agents ruff check backend/agents/src/knowledge/llm_wiki_ingest.py backend/agents/src/knowledge/wiki_workspace.py backend/agents/tests/test_wiki_workspace.py
+(cd backend/gateway && go test ./internal/handler ./internal/model -count=1)
+corepack pnpm --dir frontend/app typecheck
+./scripts/docker-release.sh build --scope app
+OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh
+```
+
+结果：
+
+- agents tests：`45 passed`
+- ruff：passed
+- gateway handler/model：passed
+- frontend typecheck：passed
+- images：
+  - `zhangxuan2/openagents-web:latest` `c3618dda4505`
+  - `zhangxuan2/openagents-gateway:latest` `be9372af26c1`
+  - `zhangxuan2/openagents-langgraph:latest` `53f25e7a541a`

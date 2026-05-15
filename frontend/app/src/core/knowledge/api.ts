@@ -19,6 +19,14 @@ type KnowledgeErrorPayload = {
   error?: string;
 };
 
+function knowledgeUploadRelativePath(file: File): string {
+  const relativePath = (file as File & { webkitRelativePath?: string })
+    .webkitRelativePath;
+  return relativePath && relativePath.trim().length > 0
+    ? relativePath
+    : file.name;
+}
+
 export type VisibleKnowledgeDocumentVariant =
   | "preview"
   | "source"
@@ -85,6 +93,7 @@ export async function createThreadKnowledgeBase(
   formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
+    formData.append("relative_paths", knowledgeUploadRelativePath(file));
   });
 
   return fetchKnowledgeJson<KnowledgeAcceptedResponse>(
@@ -128,6 +137,7 @@ export async function createKnowledgeBase(params: {
   formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
+    formData.append("relative_paths", knowledgeUploadRelativePath(file));
   });
 
   return fetchKnowledgeJson<KnowledgeAcceptedResponse>(

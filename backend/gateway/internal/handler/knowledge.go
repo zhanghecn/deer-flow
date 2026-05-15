@@ -162,8 +162,11 @@ var (
 	knowledgeWorkspaceTypePattern     = regexp.MustCompile(`(?m)^type:\s*["']?(.+?)["']?\s*$`)
 	knowledgeWorkspaceSourcesBlock    = regexp.MustCompile(`(?m)^sources:\s*\n((?:\s+-\s+.+\n?)*)`)
 	knowledgeWorkspaceSourcesInline   = regexp.MustCompile(`(?m)^sources:\s*\[([^\]]*)\]`)
+	knowledgeWorkspaceRelatedBlock    = regexp.MustCompile(`(?m)^related:\s*\n((?:\s+-\s+.+\n?)*)`)
+	knowledgeWorkspaceRelatedInline   = regexp.MustCompile(`(?m)^related:\s*\[([^\]]*)\]`)
 	knowledgeWorkspaceHeadingPattern  = regexp.MustCompile(`(?m)^#\s+(.+)$`)
 	knowledgeWorkspaceWikiLinkPattern = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]`)
+	knowledgeWorkspaceGraphKeySplit   = regexp.MustCompile(`[^0-9a-z\p{Han}]+`)
 )
 
 var knowledgeWorkspaceTypeAffinity = map[string]map[string]float64{
@@ -774,6 +777,11 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "at least one file is required"})
 		return
 	}
+	relativePaths, err := knowledgeUploadRelativePaths(form, files)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
 
 	baseName := strings.TrimSpace(c.PostForm("name"))
 	if baseName == "" {
@@ -791,8 +799,8 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 
 	baseID := uuid.NewString()
 	pendingDocuments := make([]knowledgePendingDocument, 0, len(files))
-	for _, fileHeader := range files {
-		document, err := h.saveUploadedKnowledgeFile(c, userID.String(), baseID, fileHeader)
+	for index, fileHeader := range files {
+		document, err := h.saveUploadedKnowledgeFile(c, userID.String(), baseID, fileHeader, relativePaths[index])
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 			return
@@ -1203,6 +1211,49 @@ func (h *KnowledgeHandler) resolveEnabledCompileModelCandidate(ctx context.Conte
 	return "", nil
 }
 
+func knowledgeUploadRelativePaths(form *multipart.Form, files []*multipart.FileHeader) ([]string, error) {
+	values := form.Value["relative_paths"]
+	result := make([]string, 0, len(files))
+	for index, fileHeader := range files {
+		rawPath := fileHeader.Filename
+		if index < len(values) && strings.TrimSpace(values[index]) != "" {
+			rawPath = values[index]
+		}
+		relativePath, err := cleanKnowledgeUploadRelativePath(rawPath)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, relativePath)
+	}
+	return result, nil
+}
+
+func cleanKnowledgeUploadRelativePath(value string) (string, error) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	if normalized == "" {
+		return "", fmt.Errorf("knowledge upload path is required")
+	}
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("knowledge upload path must be relative: %s", value)
+	}
+	clean := ppath.Clean(normalized)
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("knowledge upload path is required")
+	}
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+		return "", fmt.Errorf("knowledge upload path must stay within the uploaded folder: %s", value)
+	}
+	if filepath.Base(clean) == "." || filepath.Base(clean) == ".." || filepath.Base(clean) == "" {
+		return "", fmt.Errorf("invalid knowledge upload filename: %s", value)
+	}
+	// The relative path is part of the compiled source identity, while the
+	// physical source file stays inside a per-document package. Preserving this
+	// path lets folder imports compile into useful wiki names instead of sixty
+	// indistinguishable `cases.md` pages.
+	return clean, nil
+}
+
 func optionalStringValue(value *string) string {
 	if value == nil {
 		return ""
@@ -1266,8 +1317,9 @@ func (h *KnowledgeHandler) saveUploadedKnowledgeFile(
 	userID string,
 	baseID string,
 	fileHeader *multipart.FileHeader,
+	relativePath string,
 ) (knowledgePendingDocument, error) {
-	safeName := filepath.Base(fileHeader.Filename)
+	safeName := filepath.Base(relativePath)
 	if safeName == "." || safeName == ".." || safeName == "" {
 		return knowledgePendingDocument{}, fmt.Errorf("invalid filename: %s", fileHeader.Filename)
 	}
@@ -1284,7 +1336,7 @@ func (h *KnowledgeHandler) saveUploadedKnowledgeFile(
 	if err := c.SaveUploadedFile(fileHeader, sourcePath); err != nil {
 		return knowledgePendingDocument{}, fmt.Errorf("save uploaded file: %w", err)
 	}
-	return buildKnowledgePendingDocument(h.fs.BaseDir(), userID, baseID, documentID, safeName, sourcePath)
+	return buildKnowledgePendingDocument(h.fs.BaseDir(), userID, baseID, documentID, relativePath, sourcePath)
 }
 
 func (h *KnowledgeHandler) copyThreadUploadToKnowledge(
@@ -1563,7 +1615,50 @@ func workspaceWikiLinks(content string) []string {
 			links = append(links, strings.TrimSpace(match[1]))
 		}
 	}
+	// Browser graph construction runs in the gateway, so it must enforce the
+	// same llm-wiki relationship contract as the Python worker. Providers can
+	// emit valid `related` frontmatter while forgetting the matching body
+	// wikilink; treating related slugs as graph targets prevents index-only
+	// graphs without changing the stored source text.
+	links = append(links, workspaceRelatedLinks(content)...)
 	return links
+}
+
+func workspaceRelatedLinks(content string) []string {
+	fm := workspaceFrontmatter(content)
+	links := make([]string, 0)
+	appendRelated := func(raw string) {
+		item := normalizeWorkspaceRelatedTarget(raw)
+		if item != "" {
+			links = append(links, item)
+		}
+	}
+	if match := knowledgeWorkspaceRelatedBlock.FindStringSubmatch(fm); len(match) == 2 {
+		for _, line := range strings.Split(match[1], "\n") {
+			item := strings.TrimSpace(line)
+			item = strings.TrimSpace(strings.TrimPrefix(item, "-"))
+			appendRelated(item)
+		}
+	}
+	if match := knowledgeWorkspaceRelatedInline.FindStringSubmatch(fm); len(match) == 2 {
+		for _, rawItem := range strings.Split(match[1], ",") {
+			appendRelated(rawItem)
+		}
+	}
+	return dedupeStrings(links)
+}
+
+func normalizeWorkspaceRelatedTarget(raw string) string {
+	item := strings.TrimSpace(raw)
+	item = strings.Trim(item, "[]")
+	item = strings.Trim(strings.TrimSpace(item), `"'`)
+	if item == "" {
+		return ""
+	}
+	if matches := knowledgeWorkspaceWikiLinkPattern.FindAllStringSubmatch(item, -1); len(matches) > 0 {
+		return workspaceWikiPathSlug(matches[0][1])
+	}
+	return workspaceWikiPathSlug(item)
 }
 
 func resolveWorkspaceGraphTarget(raw string, nodes map[string]*knowledgeWorkspaceGraphRawNode) string {
@@ -1575,13 +1670,39 @@ func resolveWorkspaceGraphTarget(raw string, nodes map[string]*knowledgeWorkspac
 		return trimmed
 	}
 	normalized := strings.ReplaceAll(strings.ToLower(trimmed), " ", "-")
+	normalizedKey := workspaceGraphResolutionKey(trimmed)
 	for id := range nodes {
 		idLower := strings.ToLower(id)
 		if idLower == strings.ToLower(trimmed) || idLower == normalized || strings.ReplaceAll(idLower, " ", "-") == normalized {
 			return id
 		}
+		if normalizedKey != "" && (workspaceGraphResolutionKey(id) == normalizedKey || workspaceGraphResolutionKey(nodes[id].label) == normalizedKey) {
+			return id
+		}
 	}
 	return ""
+}
+
+func workspaceWikiPathSlug(raw string) string {
+	cleaned := strings.Trim(strings.TrimSpace(raw), `"'`)
+	cleaned = strings.ReplaceAll(cleaned, "\\", "/")
+	cleaned = strings.TrimSuffix(cleaned, ".md")
+	if cleaned == "" {
+		return ""
+	}
+	return ppath.Base(cleaned)
+}
+
+func workspaceGraphResolutionKey(value string) string {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	parts := knowledgeWorkspaceGraphKeySplit.Split(lower, -1)
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			filtered = append(filtered, part)
+		}
+	}
+	return strings.Join(filtered, "-")
 }
 
 func calculateWorkspaceGraphRelevance(

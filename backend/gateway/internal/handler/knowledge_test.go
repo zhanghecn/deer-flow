@@ -122,6 +122,22 @@ func TestStorageRefRejectsPathsOutsideKnowledgeBaseRoot(t *testing.T) {
 	}
 }
 
+func TestCleanKnowledgeUploadRelativePathPreservesFolderContext(t *testing.T) {
+	got, err := cleanKnowledgeUploadRelativePath(`盲派真实案例\壬寅柱\cases.md`)
+	if err != nil {
+		t.Fatalf("cleanKnowledgeUploadRelativePath() error = %v", err)
+	}
+	if got != "盲派真实案例/壬寅柱/cases.md" {
+		t.Fatalf("cleanKnowledgeUploadRelativePath() = %q, want folder-aware source path", got)
+	}
+
+	for _, rawPath := range []string{"../cases.md", "/tmp/cases.md"} {
+		if _, err := cleanKnowledgeUploadRelativePath(rawPath); err == nil {
+			t.Fatalf("cleanKnowledgeUploadRelativePath(%q) error = nil, want rejection", rawPath)
+		}
+	}
+}
+
 func TestCopyMarkdownReferencedAssets(t *testing.T) {
 	t.Run("copies relative markdown image assets into the knowledge package", func(t *testing.T) {
 		sourceDir := filepath.Join(t.TempDir(), "uploads")
@@ -250,6 +266,10 @@ func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
 	if strings.Join(sources, ",") != "contract.pdf,risk.md" {
 		t.Fatalf("workspaceMarkdownSources() = %+v, want parsed source frontmatter", sources)
 	}
+	links := workspaceWikiLinks("---\nrelated: [解除权, \"wiki/concepts/通知义务.md\"]\n---\n# 合同\n正文 [[违约责任]]")
+	if strings.Join(links, ",") != "违约责任,解除权,通知义务" {
+		t.Fatalf("workspaceWikiLinks() = %+v, want body wikilinks plus related frontmatter targets", links)
+	}
 
 	a := &knowledgeWorkspaceGraphRawNode{
 		id:      "breach",
@@ -284,6 +304,12 @@ func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
 
 	if got <= 8.0 {
 		t.Fatalf("calculateWorkspaceGraphRelevance() = %.3f, want direct/source/common-neighbor weighted score", got)
+	}
+	resolved := resolveWorkspaceGraphTarget("解除权", map[string]*knowledgeWorkspaceGraphRawNode{
+		"termination": b,
+	})
+	if resolved != "termination" {
+		t.Fatalf("resolveWorkspaceGraphTarget() = %q, want title-based match", resolved)
 	}
 }
 
