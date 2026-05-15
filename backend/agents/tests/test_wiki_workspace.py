@@ -118,6 +118,76 @@ def test_sync_indexed_document_writes_llm_wiki_workspace_files(tmp_path, monkeyp
     assert ".llm-wiki/ingest-cache.json" in tree_paths
     cache = json.loads(store.read_text(workspace, ".llm-wiki/ingest-cache.json"))
     assert cache["entries"]["复杂合同.pdf"]["hash"] == "sha-demo"
+    assert cache["entries"]["复杂合同.pdf"]["documentId"] == "33333333-3333-3333-3333-333333333333"
+    assert cache["entries"]["复杂合同.pdf"]["llmWikiPromptVersion"] == "openagents-llm-wiki-v1"
+    assert cache["entries"]["复杂合同.pdf"]["llmIngestCacheable"] is False
+
+
+def test_sync_indexed_document_reuses_current_ingest_cache(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    job = QueuedKnowledgeBuildJob(
+        job_id="job-cache",
+        knowledge_base_id=workspace.id,
+        document_id="33333333-3333-3333-3333-333333333333",
+        user_id=workspace.owner_id,
+        thread_id="thread-1",
+        model_name="model",
+        display_name="复杂合同.pdf",
+        file_name="复杂合同.pdf",
+        file_kind="pdf",
+        source_storage_path="knowledge/users/u/bases/b/documents/d/source/复杂合同.pdf",
+    )
+    indexed = IndexedDocument(
+        display_name="复杂合同.pdf",
+        file_name="复杂合同.pdf",
+        file_kind="pdf",
+        locator_type="page",
+        page_count=1,
+        doc_description="合同。",
+        structure=[],
+        nodes=[],
+        canonical_markdown="# 合同\n\n违约责任。",
+        source_map=[],
+    )
+
+    first_files = sync_indexed_document_to_workspace(
+        store=store,
+        workspace=workspace,
+        job=job,
+        indexed_document=indexed,
+        content_sha256="sha-cache",
+        llm_ingest_enabled=True,
+        llm_generated_pages={
+            "wiki/concepts/contract-risk.md": (
+                "---\n"
+                "type: concept\n"
+                "title: Contract Risk\n"
+                "created: 2026-05-16\n"
+                "updated: 2026-05-16\n"
+                "tags: [contract]\n"
+                "related: []\n"
+                "sources: [\"复杂合同.pdf\"]\n"
+                "---\n\n"
+                "# Contract Risk\n\n违约责任。\n"
+            )
+        },
+    )
+    monkeypatch.setattr(
+        "src.knowledge.wiki_workspace.generate_llm_wiki_files",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("llm_wiki should be cached")),
+    )
+
+    second_files = sync_indexed_document_to_workspace(
+        store=store,
+        workspace=workspace,
+        job=job,
+        indexed_document=indexed,
+        content_sha256="sha-cache",
+        llm_ingest_enabled=True,
+    )
+
+    assert second_files == first_files
 
 
 def test_sync_indexed_document_rewrites_overview_for_multiple_sources(tmp_path, monkeypatch):

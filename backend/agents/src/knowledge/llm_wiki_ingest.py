@@ -38,6 +38,7 @@ UNION_FIELDS = ("sources", "tags", "related")
 LOCKED_FIELDS = ("type", "title", "created")
 MAX_LLM_SOURCE_CHARS = 90_000
 MAX_NODE_CONTEXT_CHARS = 40_000
+LLM_WIKI_PROMPT_VERSION = "openagents-llm-wiki-v1"
 
 
 @dataclass(frozen=True)

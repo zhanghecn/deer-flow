@@ -125,6 +125,7 @@ services:
       OPENAGENTS_LANGGRAPH_CONFIG_PATH: /workspace/backend/agents/langgraph.json
       OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
       OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
+      OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY: ${OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY:-1}
       PYTHONPATH: /workspace/backend/agents
       PYTHONDONTWRITEBYTECODE: "1"
     extra_hosts: *host_docker_internal

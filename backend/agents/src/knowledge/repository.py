@@ -450,6 +450,9 @@ class KnowledgeRepository:
     ) -> str | None:
         if not content_sha256:
             return None
+        # Reuse is intentionally model-strict. Summaries and descriptions are
+        # model-authored artifacts, so cross-model reuse would make build output
+        # hard to explain and invalidate compile-model selection in the UI.
         query = """
             SELECT id::text
             FROM knowledge_documents
@@ -457,14 +460,9 @@ class KnowledgeRepository:
               AND status = 'ready'
               AND file_kind = %s
               AND content_sha256 = %s
+              AND build_model_name IS NOT DISTINCT FROM %s::text
               AND node_count > 0
-            ORDER BY
-                CASE
-                    WHEN build_model_name IS NOT DISTINCT FROM %s::text THEN 0
-                    WHEN %s::text IS NULL THEN 1
-                    ELSE 2
-                END,
-                updated_at DESC
+            ORDER BY updated_at DESC
             LIMIT 1
         """
         with self.connection() as conn, conn.cursor() as cur:
@@ -474,7 +472,6 @@ class KnowledgeRepository:
                     document_id,
                     file_kind,
                     content_sha256,
-                    build_model_name,
                     build_model_name,
                 ),
             )

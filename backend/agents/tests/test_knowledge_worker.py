@@ -91,6 +91,16 @@ def test_process_build_job_marks_error_when_model_name_is_missing():
     assert repository.build_job_updates[-1]["stage"] == "error"
 
 
+def test_knowledge_worker_concurrency_env_is_bounded(monkeypatch):
+    monkeypatch.setenv("OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY", "32")
+
+    assert knowledge_worker._knowledge_worker_concurrency() == 8
+
+    monkeypatch.setenv("OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY", "0")
+
+    assert knowledge_worker._knowledge_worker_concurrency() == 1
+
+
 def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
     repository = _FakeRepository(job=_queued_job(model_name="kimi-k2.5"))
     source_path = tmp_path / "demo.pdf"

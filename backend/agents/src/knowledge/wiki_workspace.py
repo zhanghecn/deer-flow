@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from src.knowledge.llm_wiki_ingest import (
+    LLM_WIKI_PROMPT_VERSION,
     LlmWikiIngestResult,
     generate_llm_wiki_files,
     merge_page_content,
@@ -227,6 +228,27 @@ def sync_indexed_document_to_workspace(
     source_page_path = f"wiki/sources/{slug}.md"
     generated_pages = llm_generated_pages
     if generated_pages is None and llm_ingest_enabled:
+        cache_hit_files = _cached_ingest_files_if_current(
+            store=store,
+            workspace=workspace,
+            source_file_name=job.file_name,
+            document_id=job.document_id,
+            content_sha256=content_sha256,
+        )
+        if cache_hit_files is not None:
+            _observer_log_event(
+                observer,
+                stage="workspace",
+                step_name="llm_wiki_ingest_reuse",
+                status="completed",
+                message=f"Reused existing llm_wiki workspace artifacts for {job.display_name}",
+                metadata={
+                    "files": cache_hit_files,
+                    "prompt_version": LLM_WIKI_PROMPT_VERSION,
+                    "source_file_name": job.file_name,
+                },
+            )
+            return cache_hit_files
         generated_pages = _generate_llm_wiki_pages(
             store=store,
             workspace=workspace,
@@ -267,8 +289,10 @@ def sync_indexed_document_to_workspace(
         store=store,
         workspace=workspace,
         source_file_name=job.file_name,
+        document_id=job.document_id,
         source_content=indexed_document.canonical_markdown,
         content_sha256=content_sha256,
+        llm_ingest_cacheable=bool(llm_ingest_enabled and generated_pages),
         files_written=files_written,
     )
     _rewrite_workspace_overview_if_needed(
@@ -764,8 +788,10 @@ def _update_ingest_cache(
     store: KnowledgeWorkspaceStore,
     workspace: KnowledgeWorkspaceRecord,
     source_file_name: str,
+    document_id: str,
     source_content: str,
     content_sha256: str | None,
+    llm_ingest_cacheable: bool,
     files_written: list[str],
 ) -> None:
     try:
@@ -777,11 +803,59 @@ def _update_ingest_cache(
         entries = {}
     entries[source_file_name] = {
         "hash": content_sha256 or hashlib.sha256(source_content.encode("utf-8")).hexdigest(),
+        "documentId": document_id,
+        "llmWikiPromptVersion": LLM_WIKI_PROMPT_VERSION,
+        "llmIngestCacheable": llm_ingest_cacheable,
         "timestamp": int(time.time() * 1000),
         "filesWritten": files_written,
     }
     payload["entries"] = entries
     store.write_text(workspace, ".llm-wiki/ingest-cache.json", json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def _cached_ingest_files_if_current(
+    *,
+    store: KnowledgeWorkspaceStore,
+    workspace: KnowledgeWorkspaceRecord,
+    source_file_name: str,
+    document_id: str,
+    content_sha256: str | None,
+) -> list[str] | None:
+    if not content_sha256:
+        return None
+    try:
+        payload = json.loads(store.read_text(workspace, ".llm-wiki/ingest-cache.json"))
+    except Exception:
+        return None
+    entries = payload.get("entries")
+    if not isinstance(entries, dict):
+        return None
+    entry = entries.get(source_file_name)
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("hash") != content_sha256:
+        return None
+    if entry.get("documentId") != document_id:
+        return None
+    if entry.get("llmIngestCacheable") is not True:
+        return None
+    if entry.get("llmWikiPromptVersion") != LLM_WIKI_PROMPT_VERSION:
+        return None
+    files_written = entry.get("filesWritten")
+    if not isinstance(files_written, list) or not files_written:
+        return None
+    normalized_files = [path for path in files_written if isinstance(path, str)]
+    if len(normalized_files) != len(files_written):
+        return None
+    # The cache is only trusted when every recorded artifact still exists in
+    # the asset store; otherwise the source is regenerated so stale metadata
+    # cannot hide a partially deleted workspace.
+    for path in normalized_files:
+        try:
+            store.read_text(workspace, path)
+        except FileNotFoundError:
+            return None
+    return normalized_files
 
 
 def _delete_stale_cached_files(

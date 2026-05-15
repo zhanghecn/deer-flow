@@ -30,6 +30,10 @@ Notes:
 - `runtime.jobs_per_worker` controls LangGraph dev queue concurrency for local
   and Docker dev runs. Increase it when long-running runs would otherwise block
   newer threads behind a single worker.
+- `OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY` controls background knowledge
+  document build concurrency. Keep it close to the compile model's rate limit;
+  per-knowledge-base workspace writes remain serialized to preserve wiki graph
+  consistency.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
 - `skills.path` points at the canonical authored skills-library root used for
@@ -61,6 +65,20 @@ Example override:
 ```bash
 export OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER=8
 ```
+
+## Knowledge Build Concurrency
+
+Knowledge uploads are queued in PostgreSQL and compiled by background runtime
+workers. The default is intentionally conservative:
+
+```bash
+export OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY=1
+```
+
+Raise this to `2` or `4` when the compile model and gateway can handle more
+parallel requests. Workers claim jobs with row locks, while shared llm-wiki
+workspace writes for the same knowledge base are serialized so `wiki/index.md`,
+`wiki/overview.md`, `wiki/log.md`, and shared concept pages stay coherent.
 
 ### 1. Local Debug
 

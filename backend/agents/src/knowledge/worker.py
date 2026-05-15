@@ -16,9 +16,13 @@ from src.knowledge.wiki_workspace import KnowledgeWorkspaceStore, sync_indexed_d
 logger = logging.getLogger(__name__)
 _INDEX_CACHE_VERSION = "pageindex-pg-v1"
 _DEFAULT_POLL_INTERVAL_SECONDS = 2.0
+_DEFAULT_WORKER_CONCURRENCY = 1
+_MAX_WORKER_CONCURRENCY = 8
 _worker_lock = threading.Lock()
-_worker_thread: threading.Thread | None = None
+_worker_threads: list[threading.Thread] = []
 _worker_stop_event: threading.Event | None = None
+_workspace_sync_locks: dict[str, threading.Lock] = {}
+_workspace_sync_locks_guard = threading.Lock()
 
 
 class _BuildJobObserver:
@@ -235,15 +239,20 @@ def _sync_workspace_artifacts(
         message=f"Writing wiki workspace artifacts for {job.display_name}",
         progress_percent=99,
     )
-    files_written = sync_indexed_document_to_workspace(
-        store=KnowledgeWorkspaceStore(),
-        workspace=workspace,
-        job=job,
-        indexed_document=indexed_document,
-        content_sha256=content_sha256,
-        llm_ingest_enabled=True,
-        observer=observer,
-    )
+    # PageIndex work can run concurrently, but llm-wiki workspace files are a
+    # shared per-KB artifact. Serialize this critical section so index,
+    # overview, log, and shared concept pages are not overwritten by sibling
+    # document builds from the same knowledge base.
+    with _workspace_sync_lock_for(job.knowledge_base_id):
+        files_written = sync_indexed_document_to_workspace(
+            store=KnowledgeWorkspaceStore(),
+            workspace=workspace,
+            job=job,
+            indexed_document=indexed_document,
+            content_sha256=content_sha256,
+            llm_ingest_enabled=True,
+            observer=observer,
+        )
     observer.log_event(
         stage="workspace",
         step_name="wiki_workspace_sync",
@@ -396,35 +405,56 @@ def _knowledge_worker_poll_interval_seconds() -> float:
     return max(0.1, value)
 
 
+def _knowledge_worker_concurrency() -> int:
+    raw = os.getenv("OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY", str(_DEFAULT_WORKER_CONCURRENCY)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY: {raw}") from exc
+    return max(1, min(value, _MAX_WORKER_CONCURRENCY))
+
+
+def _workspace_sync_lock_for(knowledge_base_id: str) -> threading.Lock:
+    with _workspace_sync_locks_guard:
+        return _workspace_sync_locks.setdefault(knowledge_base_id, threading.Lock())
+
+
 def start_knowledge_worker_thread() -> threading.Thread | None:
-    global _worker_thread, _worker_stop_event
+    global _worker_threads, _worker_stop_event
 
     if not _knowledge_worker_enabled():
         logger.info("Knowledge build worker is disabled by configuration.")
         return None
 
     with _worker_lock:
-        if _worker_thread is not None and _worker_thread.is_alive():
-            return _worker_thread
+        live_threads = [thread for thread in _worker_threads if thread.is_alive()]
+        if live_threads:
+            _worker_threads = live_threads
+            return live_threads[0]
 
         _worker_stop_event = threading.Event()
-        worker = KnowledgeBuildWorker(poll_interval_seconds=_knowledge_worker_poll_interval_seconds())
-        _worker_thread = threading.Thread(
-            target=worker.run_forever,
-            kwargs={"stop_event": _worker_stop_event},
-            name="knowledge-build-worker",
-            daemon=True,
-        )
-        _worker_thread.start()
-        logger.info("Started knowledge build worker thread.")
-        return _worker_thread
+        poll_interval_seconds = _knowledge_worker_poll_interval_seconds()
+        concurrency = _knowledge_worker_concurrency()
+        _worker_threads = []
+        for index in range(concurrency):
+            worker = KnowledgeBuildWorker(poll_interval_seconds=poll_interval_seconds)
+            thread = threading.Thread(
+                target=worker.run_forever,
+                kwargs={"stop_event": _worker_stop_event},
+                name=f"knowledge-build-worker-{index + 1}",
+                daemon=True,
+            )
+            thread.start()
+            _worker_threads.append(thread)
+        logger.info("Started %s knowledge build worker thread(s).", concurrency)
+        return _worker_threads[0] if _worker_threads else None
 
 
 def stop_knowledge_worker_thread() -> None:
-    global _worker_thread, _worker_stop_event
+    global _worker_threads, _worker_stop_event
 
     with _worker_lock:
         if _worker_stop_event is not None:
             _worker_stop_event.set()
-        _worker_thread = None
+        _worker_threads = []
         _worker_stop_event = None
