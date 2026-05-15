@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { KnowledgeBase } from "@/core/knowledge/types";
 
-import { shouldDeferKnowledgeSelectionUrlSync } from "./thread-knowledge-management-page";
+import {
+  selectDefaultKnowledgeWorkspacePath,
+  shouldDeferKnowledgeSelectionUrlSync,
+} from "./thread-knowledge-management-page";
 
 function knowledgeBase(
   id: string,
@@ -109,5 +112,25 @@ describe("shouldDeferKnowledgeSelectionUrlSync", () => {
         selectedDocumentId: "doc-old-a",
       }),
     ).toBe(false);
+  });
+});
+
+describe("selectDefaultKnowledgeWorkspacePath", () => {
+  it("opens the generated wiki index before raw source files", () => {
+    expect(
+      selectDefaultKnowledgeWorkspacePath([
+        { name: "source.md", path: "raw/sources/source.md", is_dir: false },
+        { name: "index.md", path: "wiki/index.md", is_dir: false },
+      ]),
+    ).toBe("wiki/index.md");
+  });
+
+  it("falls back to the first wiki markdown page", () => {
+    expect(
+      selectDefaultKnowledgeWorkspacePath([
+        { name: "schema.json", path: "schema.json", is_dir: false },
+        { name: "case.md", path: "wiki/case.md", is_dir: false },
+      ]),
+    ).toBe("wiki/case.md");
   });
 });

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import {
   getKnowledgeDocumentDebugPayload,
   getKnowledgeDocumentTree,
+  getKnowledgeWorkspaceFile,
+  getKnowledgeWorkspaceGraph,
+  getKnowledgeWorkspaceTree,
   getVisibleKnowledgeDocumentTree,
   listKnowledgeDocumentBuildEvents,
   listKnowledgeLibrary,
@@ -133,6 +136,46 @@ export function useKnowledgeDocumentDebug(
     queryFn: () => getKnowledgeDocumentDebugPayload(documentId ?? ""),
     enabled: Boolean(documentId && enabled),
     staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useKnowledgeWorkspaceTree(
+  knowledgeBaseId: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["knowledge-workspace-tree", knowledgeBaseId],
+    queryFn: () => getKnowledgeWorkspaceTree(knowledgeBaseId ?? ""),
+    enabled: Boolean(knowledgeBaseId && enabled),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useKnowledgeWorkspaceFile(
+  knowledgeBaseId: string | undefined,
+  path: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["knowledge-workspace-file", knowledgeBaseId, path],
+    queryFn: () => getKnowledgeWorkspaceFile(knowledgeBaseId ?? "", path ?? ""),
+    enabled: Boolean(knowledgeBaseId && path && enabled),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useKnowledgeWorkspaceGraph(
+  knowledgeBaseId: string | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["knowledge-workspace-graph", knowledgeBaseId],
+    queryFn: () => getKnowledgeWorkspaceGraph(knowledgeBaseId ?? ""),
+    enabled: Boolean(knowledgeBaseId && enabled),
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
 }

@@ -5,7 +5,7 @@
 This spec is for any change involving:
 
 - knowledge-base ingestion
-- PageTree / evidence retrieval
+- Wiki Workspace search / page / source-evidence retrieval
 - citations / preview jump
 - inline image evidence
 - knowledge-base selector and management UI
@@ -55,11 +55,12 @@ Still from the real app flow:
    - contains grounded citations
    - citations match the returned source
    - image evidence appears naturally when the document meaning depends on images
-   - if a broad evidence response reports omitted visuals, the follow-up narrows by node or uses `get_document_image(...)` instead of opening spill files
+   - broad questions start from `search_knowledge_workspace(...)` and inspect relevant pages with `get_wiki_page(...)`
+   - exact-source questions use `get_source_evidence(...)` instead of opening raw cache or spill files directly
 5. In the same KB-attached thread, ask at least one clearly non-KB question.
 6. Verify the non-KB turn:
    - still answers correctly
-   - does not spuriously call `get_document_tree` / `get_document_evidence`
+   - does not spuriously call `search_knowledge_workspace` / `get_wiki_page` / `get_source_evidence`
    - can still use normal filesystem or shell tools when the task needs them
 
 ### 4. Internal Audit Test
@@ -72,10 +73,11 @@ Required audit coverage:
 
 1. Inspect the agent run trace.
 2. Confirm the tool path is reasonable:
-   - `get_document_tree`
-   - `get_document_evidence`
-   - no preliminary knowledge-document listing tool call is required when the prompt already injected attached document metadata
-3. Confirm it did not regress to broad spill behavior without narrowing.
+   - `search_knowledge_workspace`
+   - `get_wiki_page`
+   - `get_source_evidence` when exact original-source text is needed
+   - no preliminary knowledge-document listing tool call is required when the prompt already injected attached workspace metadata
+3. Confirm it did not regress to broad raw-cache or spill-file reads.
 4. Confirm KB-only guardrails are scoped narrowly enough that a non-KB turn on the same thread is not diverted into KB tools, even when the user did not type an explicit `@document` reference.
 5. Confirm the final answer matches the evidence bundle used in the same turn.
 6. If behavior is wrong, record the exact failure mode rather than guessing.
@@ -97,6 +99,12 @@ When the task touches ingestion or preview:
 - `markdown`
 - `pdf`
 - `docx` or `doc`
+
+When the task touches llm_wiki workspace compilation:
+
+- multi-source base where two files generate or update the same entity/concept page
+- re-index of a source that previously generated shared wiki pages
+- verify stale source contribution cleanup does not delete pages still sourced by another document
 
 When the task touches image evidence:
 

@@ -8,90 +8,24 @@ from deepagents.middleware._utils import append_to_system_message
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 
-from src.config.agents_config import load_agents_md
 from src.knowledge import KnowledgeService
-from src.knowledge.models import KnowledgeDocumentRecord
-from src.knowledge.references import (
-    ResolvedKnowledgeReferences,
-    extract_knowledge_document_mentions,
-    resolve_knowledge_document_mentions,
-)
+from src.knowledge.models import KnowledgeWorkspaceRecord
 from src.knowledge.runtime import resolve_knowledge_runtime_identity
-from src.utils.runtime_context import runtime_context_value
-
-READY_DOCUMENT_STATUSES = frozenset({"ready", "ready_degraded"})
 
 
-def _normalize_mentions(value: object) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return ()
-
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        key = text.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(text)
-    return tuple(normalized)
-
-
-def _agent_document_mentions(runtime_context: object) -> tuple[str, ...]:
-    agent_name = str(runtime_context_value(runtime_context, "agent_name") or "").strip()
-    if not agent_name:
-        return ()
-
-    agent_status = str(runtime_context_value(runtime_context, "agent_status") or "dev").strip() or "dev"
-    try:
-        agents_md = load_agents_md(agent_name, status=agent_status)
-    except Exception:
-        return ()
-    return extract_knowledge_document_mentions(agents_md)
-
-
-def _thread_documents(runtime_context: object) -> list[KnowledgeDocumentRecord]:
+def _thread_workspaces(runtime_context: object) -> list[KnowledgeWorkspaceRecord]:
     try:
         user_id, thread_id = resolve_knowledge_runtime_identity(runtime_context)
     except ValueError:
         return []
 
-    # KB visibility is thread-scoped and persisted. The prompt must reflect the
-    # full attached set so the model does not waste a tool call just to discover
-    # which documents exist or whether a document is still unavailable.
-    return KnowledgeService().get_thread_document_records(
+    # KB visibility is thread-scoped and persisted. The prompt reflects attached
+    # wiki workspaces so the model can search directly without guessing names or
+    # crawling mounted implementation paths.
+    return KnowledgeService().get_thread_workspace_records(
         user_id=user_id,
         thread_id=thread_id,
     )
-
-
-def _ready_documents(documents: list[KnowledgeDocumentRecord]) -> list[KnowledgeDocumentRecord]:
-    return [document for document in documents if document.status in READY_DOCUMENT_STATUSES]
-
-
-def _explicit_document_mentions(runtime_context: object) -> tuple[str, ...]:
-    explicit_mentions = _normalize_mentions(runtime_context_value(runtime_context, "knowledge_document_mentions"))
-    if explicit_mentions:
-        return explicit_mentions
-    return extract_knowledge_document_mentions(str(runtime_context_value(runtime_context, "original_user_input") or ""))
-
-
-def _knowledge_target_resolution(
-    runtime_context: object,
-    documents: list[KnowledgeDocumentRecord],
-) -> tuple[ResolvedKnowledgeReferences, ResolvedKnowledgeReferences]:
-    explicit_resolution = resolve_knowledge_document_mentions(
-        documents=documents,
-        mentions=_explicit_document_mentions(runtime_context),
-    )
-    agent_resolution = resolve_knowledge_document_mentions(
-        documents=documents,
-        mentions=_agent_document_mentions(runtime_context),
-    )
-    return explicit_resolution, agent_resolution
 
 
 def _xml_text(value: object | None) -> str:
@@ -100,196 +34,85 @@ def _xml_text(value: object | None) -> str:
     return escape(str(value or ""), quote=False)
 
 
-def _document_xml_lines(
-    document: KnowledgeDocumentRecord,
+def _workspace_xml_lines(
+    workspace: KnowledgeWorkspaceRecord,
     *,
     indent: str = "    ",
 ) -> list[str]:
     lines = [
-        f"{indent}<document>",
-        f"{indent}  <document_id>{_xml_text(document.id)}</document_id>",
-        f"{indent}  <display_name>{_xml_text(document.display_name)}</display_name>",
-        f"{indent}  <knowledge_base>{_xml_text(document.knowledge_base_name)}</knowledge_base>",
-        f"{indent}  <status>{_xml_text(document.status)}</status>",
-        f"{indent}  <file_kind>{_xml_text(document.file_kind)}</file_kind>",
-        f"{indent}  <locator_type>{_xml_text(document.locator_type)}</locator_type>",
+        f"{indent}<workspace>",
+        f"{indent}  <workspace_id>{_xml_text(workspace.id)}</workspace_id>",
+        f"{indent}  <name>{_xml_text(workspace.name)}</name>",
+        f"{indent}  <owner_id>{_xml_text(workspace.owner_id)}</owner_id>",
     ]
-    if document.doc_description:
-        lines.append(f"{indent}  <description>{_xml_text(document.doc_description)}</description>")
-    if document.page_count is not None:
-        lines.append(f"{indent}  <page_count>{document.page_count}</page_count>")
-    if document.node_count >= 0:
-        lines.append(f"{indent}  <node_count>{document.node_count}</node_count>")
-    if document.build_quality:
-        lines.append(f"{indent}  <build_quality>{_xml_text(document.build_quality)}</build_quality>")
-    if document.error:
-        lines.append(f"{indent}  <error>{_xml_text(document.error)}</error>")
-    if document.latest_build_job is not None:
-        lines.extend(
-            [
-                f"{indent}  <latest_build_job>",
-                f"{indent}    <status>{_xml_text(document.latest_build_job.status)}</status>",
-            ]
-        )
-        if document.latest_build_job.stage:
-            lines.append(f"{indent}    <stage>{_xml_text(document.latest_build_job.stage)}</stage>")
-        lines.append(
-            f"{indent}    <progress_percent>{document.latest_build_job.progress_percent}</progress_percent>"
-        )
-        if document.latest_build_job.message:
-            lines.append(f"{indent}    <message>{_xml_text(document.latest_build_job.message)}</message>")
-        lines.append(f"{indent}  </latest_build_job>")
-    lines.append(f"{indent}</document>")
+    if workspace.description:
+        lines.append(f"{indent}  <description>{_xml_text(workspace.description)}</description>")
+    if workspace.source_type:
+        lines.append(f"{indent}  <source_type>{_xml_text(workspace.source_type)}</source_type>")
+    lines.append(f"{indent}  <document_count>{workspace.document_count}</document_count>")
+    lines.append(f"{indent}  <ready_document_count>{workspace.ready_document_count}</ready_document_count>")
+    lines.append(f"{indent}</workspace>")
     return lines
 
 
-def _build_document_selection_prompt(
-    runtime_context: object,
-    documents: list[KnowledgeDocumentRecord],
-) -> str:
-    explicit_resolution, agent_resolution = _knowledge_target_resolution(
-        runtime_context,
-        documents,
-    )
-
-    if not explicit_resolution.matched and not explicit_resolution.unresolved and not agent_resolution.matched:
-        return ""
-
-    lines = [
-        "<knowledge_document_selection>",
-        "  <priority_rule>Prefer thread-attached knowledge documents in this order: explicit user @document references first, then AGENTS.md defaults.</priority_rule>",
-    ]
-
-    if explicit_resolution.matched:
-        lines.extend(
-            [
-                "  <user_targets>",
-                (
-                    "    <rule>Treat these explicit targets as the first and authoritative "
-                    "retrieval choice for this turn. Stay inside the attached knowledge "
-                    "toolchain for them: get_document_tree for navigation, narrowed "
-                    "get_document_tree for subtree refinement, then get_document_evidence "
-                    "or get_document_image for grounded answers. Do not use generic "
-                    "filesystem or shell tools to locate or inspect document copies unless "
-                    "the user explicitly asks to debug KB parsing or indexing.</rule>"
-                ),
-            ]
-        )
-        for document in explicit_resolution.matched:
-            lines.extend(_document_xml_lines(document, indent="    "))
-        lines.append("  </user_targets>")
-
-    if explicit_resolution.unresolved:
-        lines.append("  <unresolved_user_targets>")
-        for mention in explicit_resolution.unresolved:
-            lines.append(f"    <reference>{_xml_text(mention)}</reference>")
-        lines.append(
-            "    <rule>Do not guess unresolved references. Use only the attached ready documents listed in &lt;knowledge_attached_documents&gt;.</rule>"
-        )
-        lines.append("  </unresolved_user_targets>")
-
-    if agent_resolution.matched:
-        lines.append("  <agent_default_targets>")
-        for document in agent_resolution.matched:
-            lines.extend(_document_xml_lines(document, indent="    "))
-        lines.append("  </agent_default_targets>")
-
-    lines.append("</knowledge_document_selection>")
-    return "\n".join(lines)
-
-
-def _build_knowledge_protocol_prompt(documents: list[KnowledgeDocumentRecord]) -> str:
-    ready_documents = _ready_documents(documents)
+def _build_knowledge_protocol_prompt(workspaces: list[KnowledgeWorkspaceRecord]) -> str:
+    ready_workspaces = [workspace for workspace in workspaces if workspace.ready_document_count > 0]
     lines = [
         "<knowledge_tool_protocol>",
-        "  <activation_rule>Apply this protocol only when the current turn needs attached-document retrieval. The thread's attached documents already define the retrieval scope, so an explicit @document reference is optional, not required. Otherwise ignore this block and continue the normal general-purpose workflow.</activation_rule>",
-        "  <rule>When this protocol is active, use attached knowledge tools as the source of truth for attached documents.</rule>",
-        "  <rule>When this protocol is active, refresh evidence in the current turn before answering a new knowledge-document question.</rule>",
-        "  <rule>When this protocol is active, read document metadata directly from &lt;knowledge_attached_documents&gt; instead of calling a listing tool.</rule>",
-        "  <rule>Preferred sequence when this protocol is active: choose one ready &lt;document_id&gt;, call get_document_tree(..., max_depth=2), call get_document_tree(..., node_id=...) when needed, then call get_document_evidence(..., node_ids=...).</rule>",
-        "  <rule>When this protocol is active, prefer the injected ASCII &lt;document_id&gt; for every later document_name_or_id=... argument. Only fall back to the exact document name when an id is unavailable.</rule>",
-        "  <rule>When this protocol is active, pick one concrete ready document_id before each tree or evidence call. Do not send placeholder, guessed, or empty document_name_or_id values.</rule>",
-        "  <rule>When this protocol is active, stay with the knowledge tools first for attached-document answers.</rule>",
-        "  <rule>When this protocol is active, treat get_document_tree as navigation only. Do not answer from tree summaries alone.</rule>",
-        "  <rule>When this protocol is active and a response says answer_requires_evidence=true, call get_document_evidence(...) next.</rule>",
-        "  <rule>When this protocol is active, every substantive paragraph or bullet grounded in knowledge evidence should include the exact current-turn citation_markdown when available.</rule>",
-        "  <rule>When this protocol is active, retrieve visual evidence first. Prefer display_markdown when present; otherwise use image_markdown with the matching citation.</rule>",
-        "  <rule>When this protocol is active and the tree is collapsed or spills to /large_tool_results/..., narrow by node_id or root_cursor instead of opening spill files or broadening the request again.</rule>",
-        "  <rule>When this protocol is active and KB retrieval has started, do not switch to grep, glob, read_file, ls, find, execute, or similar generic file-inspection tools to answer from attached documents.</rule>",
-        "  <rule>When this protocol is active, do not inspect /mnt/user-data/outputs/.knowledge or /large_tool_results/... directly. Refine with node_id or root_cursor, then call get_document_evidence(...).</rule>",
-        # Keep KB behavior prompt-led so the agent stays general-purpose. These
-        # rules live behind the activation_rule instead of an extra @mention
-        # gate because thread attachment, not mention syntax, is the user-level
-        # retrieval scope contract.
-        "  <rule>When this protocol is active, do not inspect indexed knowledge artifacts in runtime outputs directly unless the user explicitly asks to debug parsing, indexing, source maps, extraction quality, or citation generation.</rule>",
+        "  <activation_rule>Apply this protocol only when the current turn needs attached knowledge retrieval. The thread's attached workspaces already define the retrieval scope; otherwise ignore this block and continue the normal general-purpose workflow.</activation_rule>",
+        "  <rule>When this protocol is active, use attached knowledge workspace tools as the source of truth.</rule>",
+        "  <rule>When this protocol is active, start with search_knowledge_workspace(query=...) unless you already have an exact wiki page path.</rule>",
+        "  <rule>When search results identify a relevant page, call get_wiki_page(workspace_name_or_id=..., page_path=...) before answering.</rule>",
+        "  <rule>When the answer needs narrower original-source text, call get_source_evidence(workspace_name_or_id=..., query=..., source_path_or_name=...).</rule>",
+        "  <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>",
+        "  <rule>Do not call get_document_tree or get_document_evidence for the default flow; those are compatibility tools for older PageTree-only agents.</rule>",
+        "  <rule>Do not use grep, glob, read_file, ls, find, execute, or mounted filesystem paths to inspect attached knowledge unless the user explicitly asks to debug storage or indexing.</rule>",
     ]
-    if not ready_documents:
+    if not ready_workspaces:
         lines.append(
-            "  <rule>No attached documents are ready for retrieval yet. Do not call get_document_tree or get_document_evidence until a document status becomes ready or ready_degraded.</rule>"
+            "  <rule>No attached knowledge workspaces have ready documents yet. Do not call knowledge retrieval tools until at least one ready_document_count is greater than zero.</rule>"
         )
     lines.append("</knowledge_tool_protocol>")
     return "\n".join(lines)
 
 
-def _build_knowledge_binding_prompt(documents: list[KnowledgeDocumentRecord]) -> str:
-    ready_documents = _ready_documents(documents)
-    unavailable_documents = [document for document in documents if document.status not in READY_DOCUMENT_STATUSES]
-    base_names = sorted(
-        {
-            document.knowledge_base_name
-            for document in documents
-            if str(document.knowledge_base_name or "").strip()
-        }
-    )
+def _build_knowledge_binding_prompt(workspaces: list[KnowledgeWorkspaceRecord]) -> str:
+    ready_workspaces = [workspace for workspace in workspaces if workspace.ready_document_count > 0]
     lines = [
         "<knowledge_thread_bindings>",
         (
             "  <summary>This thread has "
-            f"{len(documents)} attached knowledge document(s), "
-            f"{len(ready_documents)} ready for retrieval, across "
-            f"{len(base_names)} knowledge base(s).</summary>"
+            f"{len(workspaces)} attached knowledge workspace(s), "
+            f"{len(ready_workspaces)} with ready documents.</summary>"
         ),
     ]
-    if base_names:
-        lines.append("  <knowledge_bases>")
-        for base_name in base_names:
-            lines.append(f"    <knowledge_base>{_xml_text(base_name)}</knowledge_base>")
-        lines.append("  </knowledge_bases>")
     lines.append("</knowledge_thread_bindings>")
-    lines.append("<knowledge_attached_documents>")
-    lines.append("  <usage_rule>Only use the attached ready documents listed in this XML block for knowledge retrieval.</usage_rule>")
-    lines.append("  <usage_rule>Use the exact document_id value when calling get_document_tree or get_document_evidence.</usage_rule>")
-    lines.append("  <ready_documents>")
-    if ready_documents:
-        for document in ready_documents:
-            lines.extend(_document_xml_lines(document, indent="    "))
+    lines.append("<knowledge_attached_workspaces>")
+    lines.append("  <usage_rule>Only use the attached workspaces listed in this XML block for knowledge retrieval.</usage_rule>")
+    lines.append("  <usage_rule>Use the exact workspace_id value when calling workspace knowledge tools.</usage_rule>")
+    lines.append("  <workspaces>")
+    if workspaces:
+        for workspace in workspaces:
+            lines.extend(_workspace_xml_lines(workspace, indent="    "))
     else:
-        lines.append("    <none>No attached documents are ready for retrieval in this turn.</none>")
-    lines.append("  </ready_documents>")
-    if unavailable_documents:
-        lines.append("  <unavailable_documents>")
-        for document in unavailable_documents:
-            lines.extend(_document_xml_lines(document, indent="    "))
-        lines.append("  </unavailable_documents>")
-    lines.append("</knowledge_attached_documents>")
+        lines.append("    <none>No knowledge workspaces are attached in this turn.</none>")
+    lines.append("  </workspaces>")
+    lines.append("</knowledge_attached_workspaces>")
     return "\n".join(lines)
 
 
 def build_knowledge_context_prompt(
     runtime_context: object,
     *,
-    documents: list[KnowledgeDocumentRecord] | None = None,
+    workspaces: list[KnowledgeWorkspaceRecord] | None = None,
 ) -> str:
-    documents = documents if documents is not None else _thread_documents(runtime_context)
-    if not documents:
+    workspaces = workspaces if workspaces is not None else _thread_workspaces(runtime_context)
+    if not workspaces:
         return ""
 
-    selection_prompt = _build_document_selection_prompt(runtime_context, documents)
-    protocol_prompt = _build_knowledge_protocol_prompt(documents)
-    binding_prompt = _build_knowledge_binding_prompt(documents)
+    protocol_prompt = _build_knowledge_protocol_prompt(workspaces)
+    binding_prompt = _build_knowledge_binding_prompt(workspaces)
     lines = ["<knowledge_context>"]
-    if selection_prompt:
-        lines.append(selection_prompt)
     lines.extend([protocol_prompt, binding_prompt, "</knowledge_context>"])
     return "\n".join(lines)
 
@@ -297,12 +120,12 @@ def build_knowledge_context_prompt(
 class KnowledgeContextMiddleware(AgentMiddleware):
     @staticmethod
     def _override_request(request: ModelRequest[Any]) -> ModelRequest[Any]:
-        documents = _thread_documents(request.runtime.context)
+        workspaces = _thread_workspaces(request.runtime.context)
         updated_request = request
 
         knowledge_prompt = build_knowledge_context_prompt(
             request.runtime.context,
-            documents=documents,
+            workspaces=workspaces,
         )
         if knowledge_prompt:
             updated_request = updated_request.override(

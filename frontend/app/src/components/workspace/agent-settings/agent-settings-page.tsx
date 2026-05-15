@@ -430,6 +430,7 @@ export function AgentSettingsPageView({
               size="icon"
               onClick={() => void navigate("/workspace/agents")}
             >
+              <span className="sr-only">{t.agents.backToGallery}</span>
               <ArrowLeftIcon className="size-4" />
             </Button>
             <div className="flex items-center gap-2">

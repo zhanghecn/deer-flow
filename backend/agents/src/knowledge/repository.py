@@ -28,6 +28,7 @@ from src.knowledge.models import (
     KnowledgeEvidenceRef,
     KnowledgeNodeRecord,
     KnowledgeToolNextSteps,
+    KnowledgeWorkspaceRecord,
     NodeDetailItem,
     NodeDetailResult,
     NodePageChunk,
@@ -996,6 +997,87 @@ class KnowledgeRepository:
             )
             for row in rows
         ]
+
+    def list_thread_workspaces(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        ready_only: bool = False,
+    ) -> list[KnowledgeWorkspaceRecord]:
+        query = """
+            SELECT
+                b.id::text,
+                b.user_id::text,
+                b.name,
+                b.description,
+                b.source_type,
+                b.visibility,
+                COUNT(d.id) AS document_count,
+                COUNT(d.id) FILTER (WHERE d.status IN ('ready', 'ready_degraded')) AS ready_document_count
+            FROM knowledge_thread_bindings t
+            JOIN knowledge_bases b ON b.id = t.knowledge_base_id
+            LEFT JOIN knowledge_documents d ON d.knowledge_base_id = b.id
+            WHERE t.user_id = %s::uuid
+              AND t.thread_id = %s
+            GROUP BY b.id, b.user_id, b.name, b.description, b.source_type, b.visibility, b.created_at
+        """
+        if ready_only:
+            query += " HAVING COUNT(d.id) FILTER (WHERE d.status IN ('ready', 'ready_degraded')) > 0"
+        query += " ORDER BY b.created_at DESC"
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(query, (user_id, thread_id))
+            rows = cur.fetchall()
+        return [
+            KnowledgeWorkspaceRecord(
+                id=row[0],
+                owner_id=row[1],
+                name=row[2],
+                description=row[3],
+                source_type=row[4],
+                visibility=row[5],
+                document_count=int(row[6] or 0),
+                ready_document_count=int(row[7] or 0),
+            )
+            for row in rows
+        ]
+
+    def get_workspace_record(
+        self,
+        *,
+        knowledge_base_id: str,
+    ) -> KnowledgeWorkspaceRecord | None:
+        query = """
+            SELECT
+                b.id::text,
+                b.user_id::text,
+                b.name,
+                b.description,
+                b.source_type,
+                b.visibility,
+                COUNT(d.id) AS document_count,
+                COUNT(d.id) FILTER (WHERE d.status IN ('ready', 'ready_degraded')) AS ready_document_count
+            FROM knowledge_bases b
+            LEFT JOIN knowledge_documents d ON d.knowledge_base_id = b.id
+            WHERE b.id = %s::uuid
+            GROUP BY b.id, b.user_id, b.name, b.description, b.source_type, b.visibility
+            LIMIT 1
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(query, (knowledge_base_id,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return KnowledgeWorkspaceRecord(
+            id=row[0],
+            owner_id=row[1],
+            name=row[2],
+            description=row[3],
+            source_type=row[4],
+            visibility=row[5],
+            document_count=int(row[6] or 0),
+            ready_document_count=int(row[7] or 0),
+        )
 
     def resolve_thread_document(
         self,

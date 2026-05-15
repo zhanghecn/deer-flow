@@ -215,3 +215,99 @@ func TestFilterKnowledgeBasesForReadyDocuments(t *testing.T) {
 		)
 	}
 }
+
+func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
+	sources := workspaceMarkdownSources("---\nsources:\n  - contract.pdf\n  - \"risk.md\"\n---\n# 合同")
+	if strings.Join(sources, ",") != "contract.pdf,risk.md" {
+		t.Fatalf("workspaceMarkdownSources() = %+v, want parsed source frontmatter", sources)
+	}
+
+	a := &knowledgeWorkspaceGraphRawNode{
+		id:      "breach",
+		label:   "违约责任",
+		kind:    "concept",
+		sources: []string{"contract.pdf"},
+		out:     map[string]bool{"termination": true, "notice": true},
+		in:      map[string]bool{},
+	}
+	b := &knowledgeWorkspaceGraphRawNode{
+		id:      "termination",
+		label:   "解除权",
+		kind:    "concept",
+		sources: []string{"contract.pdf"},
+		out:     map[string]bool{"notice": true},
+		in:      map[string]bool{"breach": true},
+	}
+	notice := &knowledgeWorkspaceGraphRawNode{
+		id:      "notice",
+		label:   "通知义务",
+		kind:    "entity",
+		sources: []string{"contract.pdf"},
+		out:     map[string]bool{},
+		in:      map[string]bool{"breach": true, "termination": true},
+	}
+
+	got := calculateWorkspaceGraphRelevance(a, b, map[string]*knowledgeWorkspaceGraphRawNode{
+		"breach":      a,
+		"termination": b,
+		"notice":      notice,
+	})
+
+	if got <= 8.0 {
+		t.Fatalf("calculateWorkspaceGraphRelevance() = %.3f, want direct/source/common-neighbor weighted score", got)
+	}
+}
+
+func TestWorkspaceGraphCommunityIdsFollowSortedDisplayOrder(t *testing.T) {
+	nodes := map[string]*knowledgeWorkspaceGraphRawNode{
+		"a": {id: "a", label: "A", out: map[string]bool{"b": true}, in: map[string]bool{}},
+		"b": {id: "b", label: "B", out: map[string]bool{"c": true}, in: map[string]bool{"a": true}},
+		"c": {id: "c", label: "C", out: map[string]bool{}, in: map[string]bool{"b": true}},
+		"z": {id: "z", label: "Z", out: map[string]bool{}, in: map[string]bool{}},
+	}
+	edges := []knowledgeWorkspaceGraphEdge{
+		{Source: "a", Target: "b", Weight: 1},
+		{Source: "b", Target: "c", Weight: 1},
+	}
+
+	assignments, communities := assignWorkspaceGraphCommunities(nodes, edges)
+
+	if len(communities) != 2 {
+		t.Fatalf("communities len = %d, want 2", len(communities))
+	}
+	if communities[0].NodeCount != 3 || communities[0].ID != 0 {
+		t.Fatalf("largest community = %+v, want id 0 and 3 nodes", communities[0])
+	}
+	if assignments["a"] != 0 || assignments["z"] != 1 {
+		t.Fatalf("assignments = %+v, want largest component assigned first", assignments)
+	}
+}
+
+func TestWorkspaceGraphCommunitiesSplitWeakBridges(t *testing.T) {
+	nodes := map[string]*knowledgeWorkspaceGraphRawNode{
+		"a": {id: "a", label: "A", out: map[string]bool{"b": true}, in: map[string]bool{}},
+		"b": {id: "b", label: "B", out: map[string]bool{"c": true}, in: map[string]bool{"a": true}},
+		"c": {id: "c", label: "C", out: map[string]bool{"d": true}, in: map[string]bool{"b": true}},
+		"d": {id: "d", label: "D", out: map[string]bool{}, in: map[string]bool{"c": true}},
+	}
+	edges := []knowledgeWorkspaceGraphEdge{
+		{Source: "a", Target: "b", Weight: 10},
+		{Source: "b", Target: "c", Weight: 0.1},
+		{Source: "c", Target: "d", Weight: 10},
+	}
+
+	assignments, communities := assignWorkspaceGraphCommunities(nodes, edges)
+
+	if len(communities) != 2 {
+		t.Fatalf("communities len = %d, want weak bridge split into two communities", len(communities))
+	}
+	if assignments["a"] != assignments["b"] {
+		t.Fatalf("assignments = %+v, want a/b retained as a strong pair", assignments)
+	}
+	if assignments["c"] != assignments["d"] {
+		t.Fatalf("assignments = %+v, want c/d retained as a strong pair", assignments)
+	}
+	if assignments["a"] == assignments["c"] {
+		t.Fatalf("assignments = %+v, want weak b/c bridge not to collapse all nodes", assignments)
+	}
+}

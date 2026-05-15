@@ -129,3 +129,72 @@ export interface KnowledgeDocumentDebugPayload {
   source_map_json?: unknown;
   document_index_json?: unknown;
 }
+
+export interface KnowledgeWorkspaceFileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children?: KnowledgeWorkspaceFileNode[];
+}
+
+export interface KnowledgeWorkspaceSummary {
+  id: string;
+  owner_id: string;
+  owner_name: string;
+  name: string;
+  description?: string;
+  visibility: string;
+  preview_enabled: boolean;
+}
+
+export interface KnowledgeWorkspaceTreeResponse {
+  workspace: KnowledgeWorkspaceSummary;
+  tree: KnowledgeWorkspaceFileNode[];
+}
+
+export interface KnowledgeWorkspaceFileResponse {
+  workspace: KnowledgeWorkspaceSummary;
+  path: string;
+  content: string;
+}
+
+export interface KnowledgeWorkspaceGraphNode {
+  id: string;
+  label: string;
+  type: string;
+  path: string;
+  link_count: number;
+  community: number;
+}
+
+export interface KnowledgeWorkspaceGraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface KnowledgeWorkspaceGraphCommunity {
+  id: number;
+  node_count: number;
+  cohesion: number;
+  top_nodes: string[];
+}
+
+export interface KnowledgeWorkspaceGraphInsightNode {
+  id: string;
+  label: string;
+}
+
+export interface KnowledgeWorkspaceGraphInsights {
+  isolated_nodes: KnowledgeWorkspaceGraphInsightNode[];
+  sparse_communities: KnowledgeWorkspaceGraphCommunity[];
+  edge_count: number;
+}
+
+export interface KnowledgeWorkspaceGraphResponse {
+  workspace: KnowledgeWorkspaceSummary;
+  nodes: KnowledgeWorkspaceGraphNode[];
+  edges: KnowledgeWorkspaceGraphEdge[];
+  communities?: KnowledgeWorkspaceGraphCommunity[];
+  insights?: KnowledgeWorkspaceGraphInsights;
+}

@@ -11,6 +11,7 @@ from src.knowledge.models import QueuedKnowledgeBuildJob
 from src.knowledge.pageindex import build_document_index
 from src.knowledge.repository import KnowledgeRepository
 from src.knowledge.storage import get_knowledge_asset_store
+from src.knowledge.wiki_workspace import KnowledgeWorkspaceStore, sync_indexed_document_to_workspace
 
 logger = logging.getLogger(__name__)
 _INDEX_CACHE_VERSION = "pageindex-pg-v1"
@@ -205,10 +206,51 @@ def _reuse_existing_document_index(
         document_id=job.document_id,
         indexed_document=reused_index,
     )
+    _sync_workspace_artifacts(
+        repository=repository,
+        observer=observer,
+        job=job,
+        indexed_document=reused_index,
+        content_sha256=content_sha256,
+    )
     observer.finish_success(
         elapsed_ms=_elapsed_ms_since(build_started_at),
     )
     return True
+
+
+def _sync_workspace_artifacts(
+    *,
+    repository: KnowledgeRepository,
+    observer: _BuildJobObserver,
+    job: QueuedKnowledgeBuildJob,
+    indexed_document,
+    content_sha256: str | None,
+) -> None:
+    workspace = repository.get_workspace_record(knowledge_base_id=job.knowledge_base_id)
+    if workspace is None:
+        raise ValueError(f"Knowledge workspace not found for base {job.knowledge_base_id}")
+    observer.update_stage(
+        stage="workspace",
+        message=f"Writing wiki workspace artifacts for {job.display_name}",
+        progress_percent=99,
+    )
+    files_written = sync_indexed_document_to_workspace(
+        store=KnowledgeWorkspaceStore(),
+        workspace=workspace,
+        job=job,
+        indexed_document=indexed_document,
+        content_sha256=content_sha256,
+        llm_ingest_enabled=True,
+        observer=observer,
+    )
+    observer.log_event(
+        stage="workspace",
+        step_name="wiki_workspace_sync",
+        status="completed",
+        message=f"Wrote {len(files_written)} wiki workspace artifact(s) for {job.display_name}",
+        metadata={"files_written": files_written, "workspace_id": workspace.id},
+    )
 
 
 def process_build_job(
@@ -278,6 +320,13 @@ def process_build_job(
         repository.replace_document_index(
             document_id=job.document_id,
             indexed_document=indexed_document,
+        )
+        _sync_workspace_artifacts(
+            repository=repository,
+            observer=observer,
+            job=job,
+            indexed_document=indexed_document,
+            content_sha256=content_sha256,
         )
         observer.finish_success(
             elapsed_ms=_elapsed_ms_since(build_started_at),

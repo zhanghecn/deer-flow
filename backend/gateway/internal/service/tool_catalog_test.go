@@ -18,8 +18,11 @@ func TestListToolCatalogOmitsRemovedKnowledgeListingTool(t *testing.T) {
 	if names["list_knowledge_documents"] {
 		t.Fatalf("removed tool list_knowledge_documents still exposed in catalog")
 	}
-	if !names["get_document_tree"] || !names["get_document_evidence"] {
+	if !names["search_knowledge_workspace"] || !names["get_wiki_page"] || !names["get_source_evidence"] {
 		t.Fatalf("knowledge retrieval tools missing from catalog: %+v", names)
+	}
+	if names["get_document_tree"] || names["get_document_evidence"] {
+		t.Fatalf("legacy document-level knowledge tools should not be in default catalog: %+v", names)
 	}
 }
 

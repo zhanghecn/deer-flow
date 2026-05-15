@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from src.config.paths import Paths, get_paths
 
-
 _PACKAGE_SUBDIR_NAMES = frozenset({"source", "preview", "markdown", "canonical", "index", "assets"})
 
 
@@ -66,7 +65,14 @@ class KnowledgeAssetStore:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         client = self._client_instance()
         assert parsed.bucket is not None
-        client.fget_object(parsed.bucket, parsed.key, str(local_path))
+        try:
+            client.fget_object(parsed.bucket, parsed.key, str(local_path))
+        except Exception as exc:
+            # Filesystem and MinIO backends must expose the same missing-file
+            # contract so workspace first-write checks can stay backend-neutral.
+            if _is_s3_not_found(exc):
+                raise FileNotFoundError(storage_ref) from exc
+            raise
         return local_path
 
     def prepare_local_path(self, storage_ref: str) -> Path:
@@ -131,6 +137,66 @@ class KnowledgeAssetStore:
 
     def read_text(self, storage_ref: str, encoding: str = "utf-8") -> str:
         return self.resolve_local_path(storage_ref).read_text(encoding=encoding)
+
+    def delete_file(self, storage_ref: str) -> None:
+        """Delete a knowledge asset while preserving backend-neutral missing-file semantics."""
+
+        parsed = self._parse_storage_ref(storage_ref)
+        if parsed.scheme == "filesystem":
+            try:
+                self._filesystem_path(parsed.key).unlink()
+            except FileNotFoundError:
+                return
+            return
+
+        self._ensure_bucket()
+        client = self._client_instance()
+        assert parsed.bucket is not None
+        try:
+            client.remove_object(parsed.bucket, parsed.key)
+        except Exception as exc:
+            if not _is_s3_not_found(exc):
+                raise
+        try:
+            self._cache_path(parsed).unlink()
+        except FileNotFoundError:
+            return
+
+    def list_relative_paths(self, relative_prefix: str) -> list[str]:
+        """List file paths under a knowledge asset prefix without exposing storage internals.
+
+        Workspace features need directory-style traversal, but runtime code must
+        not care whether the bytes live on local disk or MinIO. The returned
+        values are always relative to the requested prefix.
+        """
+
+        prefix = self._clean_relative_key(relative_prefix).rstrip("/")
+        if self._backend != "s3":
+            root = self._filesystem_path(prefix)
+            if not root.exists():
+                return []
+            paths = [
+                item.relative_to(root).as_posix()
+                for item in root.rglob("*")
+                if item.is_file()
+            ]
+            return sorted(paths)
+
+        self._ensure_bucket()
+        client = self._client_instance()
+        assert self._bucket is not None
+        object_prefix = self._normalize_object_key(prefix).rstrip("/") + "/"
+        paths: list[str] = []
+        for item in client.list_objects(self._bucket, prefix=object_prefix, recursive=True):
+            object_name = str(getattr(item, "object_name", "") or "")
+            if not object_name or object_name.endswith("/"):
+                continue
+            if not object_name.startswith(object_prefix):
+                continue
+            relative = object_name[len(object_prefix) :].strip("/")
+            if relative:
+                paths.append(relative)
+        return sorted(paths)
 
     def package_root_ref(self, storage_ref: str) -> str:
         parsed = self._parse_storage_ref(storage_ref)
@@ -275,3 +341,9 @@ def get_knowledge_asset_store(paths: Paths | None = None) -> KnowledgeAssetStore
 
 def reset_knowledge_asset_store() -> None:
     return None
+
+
+def _is_s3_not_found(exc: Exception) -> bool:
+    code = str(getattr(exc, "code", "") or "")
+    response_code = str(getattr(exc, "response", "") or "")
+    return code in {"NoSuchKey", "NoSuchBucket", "NoSuchObject"} or "NoSuchKey" in response_code

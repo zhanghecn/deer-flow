@@ -94,6 +94,16 @@ type KnowledgeBaseDeleteRecord struct {
 	Name    string `json:"name"`
 }
 
+type KnowledgeWorkspaceRecord struct {
+	ID             string  `json:"id"`
+	OwnerID        string  `json:"owner_id"`
+	OwnerName      string  `json:"owner_name"`
+	Name           string  `json:"name"`
+	Description    *string `json:"description,omitempty"`
+	Visibility     string  `json:"visibility"`
+	PreviewEnabled bool    `json:"preview_enabled"`
+}
+
 type QueuedKnowledgeDocumentInput struct {
 	ID                  string
 	DisplayName         string
@@ -543,6 +553,44 @@ func (r *KnowledgeRepo) UpdateBasePreviewEnabled(
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (r *KnowledgeRepo) GetVisibleWorkspace(
+	ctx context.Context,
+	userID uuid.UUID,
+	knowledgeBaseID string,
+) (*KnowledgeWorkspaceRecord, error) {
+	query := `
+		SELECT
+			b.id::text,
+			b.user_id::text,
+			u.name,
+			b.name,
+			b.description,
+			b.visibility,
+			b.preview_enabled
+		FROM knowledge_bases b
+		JOIN users u ON u.id = b.user_id
+		WHERE b.id = $2::uuid
+		  AND (
+			b.user_id = $1
+			OR (b.visibility = 'shared' AND b.preview_enabled = TRUE)
+		  )
+		LIMIT 1
+	`
+	var record KnowledgeWorkspaceRecord
+	if err := r.pool.QueryRow(ctx, query, userID, knowledgeBaseID).Scan(
+		&record.ID,
+		&record.OwnerID,
+		&record.OwnerName,
+		&record.Name,
+		&record.Description,
+		&record.Visibility,
+		&record.PreviewEnabled,
+	); err != nil {
+		return nil, err
+	}
+	return &record, nil
 }
 
 func (r *KnowledgeRepo) DeleteBase(

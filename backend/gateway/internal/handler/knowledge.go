@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	ppath "path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -80,10 +82,95 @@ type knowledgePendingDocument struct {
 	PreviewStoragePath  string
 }
 
+type knowledgeWorkspaceFileNode struct {
+	Name     string                        `json:"name"`
+	Path     string                        `json:"path"`
+	IsDir    bool                          `json:"is_dir"`
+	Children []*knowledgeWorkspaceFileNode `json:"children,omitempty"`
+}
+
+type knowledgeWorkspaceTreeResponse struct {
+	Workspace repository.KnowledgeWorkspaceRecord `json:"workspace"`
+	Tree      []*knowledgeWorkspaceFileNode       `json:"tree"`
+}
+
+type knowledgeWorkspaceFileResponse struct {
+	Workspace repository.KnowledgeWorkspaceRecord `json:"workspace"`
+	Path      string                              `json:"path"`
+	Content   string                              `json:"content"`
+}
+
+type knowledgeWorkspaceGraphNode struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Type      string `json:"type"`
+	Path      string `json:"path"`
+	LinkCount int    `json:"link_count"`
+	Community int    `json:"community"`
+}
+
+type knowledgeWorkspaceGraphEdge struct {
+	Source string  `json:"source"`
+	Target string  `json:"target"`
+	Weight float64 `json:"weight"`
+}
+
+type knowledgeWorkspaceGraphCommunity struct {
+	ID        int      `json:"id"`
+	NodeCount int      `json:"node_count"`
+	Cohesion  float64  `json:"cohesion"`
+	TopNodes  []string `json:"top_nodes"`
+}
+
+type knowledgeWorkspaceGraphInsightNode struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type knowledgeWorkspaceGraphInsights struct {
+	IsolatedNodes     []knowledgeWorkspaceGraphInsightNode `json:"isolated_nodes"`
+	SparseCommunities []knowledgeWorkspaceGraphCommunity   `json:"sparse_communities"`
+	EdgeCount         int                                  `json:"edge_count"`
+}
+
+type knowledgeWorkspaceGraphResponse struct {
+	Workspace   repository.KnowledgeWorkspaceRecord `json:"workspace"`
+	Nodes       []knowledgeWorkspaceGraphNode       `json:"nodes"`
+	Edges       []knowledgeWorkspaceGraphEdge       `json:"edges"`
+	Communities []knowledgeWorkspaceGraphCommunity  `json:"communities"`
+	Insights    knowledgeWorkspaceGraphInsights     `json:"insights"`
+}
+
+type knowledgeWorkspaceGraphRawNode struct {
+	id      string
+	label   string
+	kind    string
+	path    string
+	sources []string
+	links   []string
+	out     map[string]bool
+	in      map[string]bool
+}
+
 var (
-	knowledgeMarkdownImageRefPattern = regexp.MustCompile(`!\[[^\]]*]\(([^)]+)\)`)
-	knowledgeHTMLImageRefPattern     = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
+	knowledgeMarkdownImageRefPattern  = regexp.MustCompile(`!\[[^\]]*]\(([^)]+)\)`)
+	knowledgeHTMLImageRefPattern      = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
+	knowledgeWorkspaceFrontmatter     = regexp.MustCompile(`(?s)^---\n(.*?)\n---`)
+	knowledgeWorkspaceTitlePattern    = regexp.MustCompile(`(?m)^title:\s*["']?(.+?)["']?\s*$`)
+	knowledgeWorkspaceTypePattern     = regexp.MustCompile(`(?m)^type:\s*["']?(.+?)["']?\s*$`)
+	knowledgeWorkspaceSourcesBlock    = regexp.MustCompile(`(?m)^sources:\s*\n((?:\s+-\s+.+\n?)*)`)
+	knowledgeWorkspaceSourcesInline   = regexp.MustCompile(`(?m)^sources:\s*\[([^\]]*)\]`)
+	knowledgeWorkspaceHeadingPattern  = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+	knowledgeWorkspaceWikiLinkPattern = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]`)
 )
+
+var knowledgeWorkspaceTypeAffinity = map[string]map[string]float64{
+	"entity":    {"concept": 1.2, "entity": 0.8, "source": 1.0, "synthesis": 1.0, "query": 0.8},
+	"concept":   {"entity": 1.2, "concept": 0.8, "source": 1.0, "synthesis": 1.2, "query": 1.0},
+	"source":    {"entity": 1.0, "concept": 1.0, "source": 0.5, "query": 0.8, "synthesis": 1.0},
+	"query":     {"concept": 1.0, "entity": 0.8, "synthesis": 1.0, "source": 0.8, "query": 0.5},
+	"synthesis": {"concept": 1.2, "entity": 1.0, "source": 1.0, "query": 1.0, "synthesis": 0.8},
+}
 
 func NewKnowledgeHandler(
 	repo *repository.KnowledgeRepo,
@@ -331,6 +418,148 @@ func debugCanonicalStorageRef(document repository.KnowledgeDocumentRecord) strin
 		return firstNonEmptyRef(document.SourceStoragePath)
 	}
 	return ""
+}
+
+func (h *KnowledgeHandler) WorkspaceTree(c *gin.Context) {
+	workspace, ok := h.resolveVisibleWorkspace(c)
+	if !ok {
+		return
+	}
+	prefix := knowledgeWorkspaceRelativePrefix(workspace.OwnerID, workspace.ID)
+	paths, err := h.assetStore.ListRelativePaths(c.Request.Context(), prefix)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list knowledge workspace"})
+		return
+	}
+	c.JSON(http.StatusOK, knowledgeWorkspaceTreeResponse{
+		Workspace: *workspace,
+		Tree:      buildWorkspaceFileTree(paths),
+	})
+}
+
+func (h *KnowledgeHandler) WorkspaceFile(c *gin.Context) {
+	workspace, ok := h.resolveVisibleWorkspace(c)
+	if !ok {
+		return
+	}
+	relativePath, err := cleanWorkspaceRelativePath(c.Query("path"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	storageRef := h.assetStore.RefForRelativePath(filepath.ToSlash(filepath.Join(
+		knowledgeWorkspaceRelativePrefix(workspace.OwnerID, workspace.ID),
+		relativePath,
+	)))
+	data, err := h.assetStore.ReadAll(c.Request.Context(), storageRef)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge workspace file not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read knowledge workspace file"})
+		return
+	}
+	c.JSON(http.StatusOK, knowledgeWorkspaceFileResponse{
+		Workspace: *workspace,
+		Path:      relativePath,
+		Content:   string(data),
+	})
+}
+
+func (h *KnowledgeHandler) WorkspaceGraph(c *gin.Context) {
+	workspace, ok := h.resolveVisibleWorkspace(c)
+	if !ok {
+		return
+	}
+	prefix := knowledgeWorkspaceRelativePrefix(workspace.OwnerID, workspace.ID)
+	paths, err := h.assetStore.ListRelativePaths(c.Request.Context(), filepath.ToSlash(filepath.Join(prefix, "wiki")))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list knowledge workspace graph"})
+		return
+	}
+
+	nodes := map[string]*knowledgeWorkspaceGraphRawNode{}
+	for _, path := range paths {
+		if !strings.HasSuffix(path, ".md") {
+			continue
+		}
+		workspacePath := filepath.ToSlash(filepath.Join("wiki", path))
+		storageRef := h.assetStore.RefForRelativePath(filepath.ToSlash(filepath.Join(prefix, workspacePath)))
+		data, err := h.assetStore.ReadAll(c.Request.Context(), storageRef)
+		if err != nil {
+			continue
+		}
+		nodeID := strings.TrimSuffix(filepath.Base(path), ".md")
+		content := string(data)
+		nodeType := workspaceMarkdownType(content)
+		if nodeType == "query" {
+			continue
+		}
+		nodes[nodeID] = &knowledgeWorkspaceGraphRawNode{
+			id:      nodeID,
+			label:   workspaceMarkdownTitle(content, filepath.Base(path)),
+			kind:    nodeType,
+			path:    workspacePath,
+			sources: workspaceMarkdownSources(content),
+			links:   workspaceWikiLinks(content),
+			out:     map[string]bool{},
+			in:      map[string]bool{},
+		}
+	}
+	for sourceID, node := range nodes {
+		for _, rawTarget := range node.links {
+			targetID := resolveWorkspaceGraphTarget(rawTarget, nodes)
+			if targetID == "" || targetID == sourceID {
+				continue
+			}
+			node.out[targetID] = true
+			nodes[targetID].in[sourceID] = true
+		}
+	}
+	edges := make([]knowledgeWorkspaceGraphEdge, 0)
+	seenEdges := map[string]bool{}
+	for sourceID, node := range nodes {
+		for targetID := range node.out {
+			keyParts := []string{sourceID, targetID}
+			sort.Strings(keyParts)
+			key := strings.Join(keyParts, ":::")
+			if seenEdges[key] {
+				continue
+			}
+			seenEdges[key] = true
+			edges = append(edges, knowledgeWorkspaceGraphEdge{
+				Source: sourceID,
+				Target: targetID,
+				Weight: calculateWorkspaceGraphRelevance(nodes[sourceID], nodes[targetID], nodes),
+			})
+		}
+	}
+	communities, communityInfo := assignWorkspaceGraphCommunities(nodes, edges)
+	responseNodes := make([]knowledgeWorkspaceGraphNode, 0, len(nodes))
+	for _, node := range nodes {
+		responseNodes = append(responseNodes, knowledgeWorkspaceGraphNode{
+			ID:        node.id,
+			Label:     node.label,
+			Type:      node.kind,
+			Path:      node.path,
+			LinkCount: len(node.out) + len(node.in),
+			Community: communities[node.id],
+		})
+	}
+	sort.Slice(responseNodes, func(i, j int) bool {
+		if responseNodes[i].Community != responseNodes[j].Community {
+			return responseNodes[i].Community < responseNodes[j].Community
+		}
+		return responseNodes[i].Label < responseNodes[j].Label
+	})
+	c.JSON(http.StatusOK, knowledgeWorkspaceGraphResponse{
+		Workspace:   *workspace,
+		Nodes:       responseNodes,
+		Edges:       edges,
+		Communities: communityInfo,
+		Insights:    buildWorkspaceGraphInsights(responseNodes, edges, communityInfo),
+	})
 }
 
 func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
@@ -1066,6 +1295,442 @@ func knowledgeBaseDir(baseDir string, userID string, baseID string) string {
 
 func knowledgeBaseRelativePrefix(userID string, baseID string) string {
 	return filepath.ToSlash(filepath.Join("knowledge", "users", userID, "bases", baseID))
+}
+
+func knowledgeWorkspaceRelativePrefix(userID string, baseID string) string {
+	return filepath.ToSlash(filepath.Join(knowledgeBaseRelativePrefix(userID, baseID), "workspace"))
+}
+
+func (h *KnowledgeHandler) resolveVisibleWorkspace(c *gin.Context) (*repository.KnowledgeWorkspaceRecord, bool) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return nil, false
+	}
+	knowledgeBaseID := strings.TrimSpace(c.Param("knowledge_base_id"))
+	if knowledgeBaseID == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "knowledge base id is required"})
+		return nil, false
+	}
+	workspace, err := h.repo.GetVisibleWorkspace(c.Request.Context(), userID, knowledgeBaseID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge workspace not found or preview is disabled"})
+			return nil, false
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge workspace"})
+		return nil, false
+	}
+	return workspace, true
+}
+
+func cleanWorkspaceRelativePath(value string) (string, error) {
+	clean := ppath.Clean(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"))
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "" || clean == "." {
+		return "", fmt.Errorf("workspace path is required")
+	}
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("workspace path must stay within the knowledge workspace")
+	}
+	return clean, nil
+}
+
+func buildWorkspaceFileTree(paths []string) []*knowledgeWorkspaceFileNode {
+	root := &knowledgeWorkspaceFileNode{Children: []*knowledgeWorkspaceFileNode{}}
+	for _, rawPath := range paths {
+		cleanPath := filepath.ToSlash(filepath.Clean(rawPath))
+		if cleanPath == "." || cleanPath == "" {
+			continue
+		}
+		current := root
+		parts := strings.Split(cleanPath, "/")
+		for index, part := range parts {
+			childPath := strings.Join(parts[:index+1], "/")
+			child := findWorkspaceTreeChild(current, part)
+			if child == nil {
+				child = &knowledgeWorkspaceFileNode{
+					Name:  part,
+					Path:  childPath,
+					IsDir: index < len(parts)-1,
+				}
+				current.Children = append(current.Children, child)
+			}
+			if index < len(parts)-1 {
+				child.IsDir = true
+			}
+			current = child
+		}
+	}
+	sortWorkspaceTree(root.Children)
+	return root.Children
+}
+
+func findWorkspaceTreeChild(parent *knowledgeWorkspaceFileNode, name string) *knowledgeWorkspaceFileNode {
+	for _, child := range parent.Children {
+		if child.Name == name {
+			return child
+		}
+	}
+	return nil
+}
+
+func sortWorkspaceTree(nodes []*knowledgeWorkspaceFileNode) {
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].IsDir != nodes[j].IsDir {
+			return nodes[i].IsDir
+		}
+		return nodes[i].Name < nodes[j].Name
+	})
+	for _, node := range nodes {
+		sortWorkspaceTree(node.Children)
+	}
+}
+
+func workspaceFrontmatter(content string) string {
+	if match := knowledgeWorkspaceFrontmatter.FindStringSubmatch(content); len(match) == 2 {
+		return match[1]
+	}
+	return ""
+}
+
+func workspaceMarkdownTitle(content string, filename string) string {
+	if match := knowledgeWorkspaceTitlePattern.FindStringSubmatch(workspaceFrontmatter(content)); len(match) == 2 {
+		return strings.Trim(strings.TrimSpace(match[1]), `"'`)
+	}
+	if match := knowledgeWorkspaceHeadingPattern.FindStringSubmatch(content); len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	return strings.ReplaceAll(strings.TrimSuffix(filename, ".md"), "-", " ")
+}
+
+func workspaceMarkdownType(content string) string {
+	if match := knowledgeWorkspaceTypePattern.FindStringSubmatch(workspaceFrontmatter(content)); len(match) == 2 {
+		return strings.ToLower(strings.Trim(strings.TrimSpace(match[1]), `"'`))
+	}
+	return "other"
+}
+
+func workspaceMarkdownSources(content string) []string {
+	fm := workspaceFrontmatter(content)
+	sources := make([]string, 0)
+	if match := knowledgeWorkspaceSourcesBlock.FindStringSubmatch(fm); len(match) == 2 {
+		for _, line := range strings.Split(match[1], "\n") {
+			item := strings.TrimSpace(line)
+			item = strings.TrimSpace(strings.TrimPrefix(item, "-"))
+			item = strings.Trim(item, `"'`)
+			if item != "" {
+				sources = append(sources, item)
+			}
+		}
+	}
+	if match := knowledgeWorkspaceSourcesInline.FindStringSubmatch(fm); len(match) == 2 {
+		for _, rawItem := range strings.Split(match[1], ",") {
+			item := strings.Trim(strings.TrimSpace(rawItem), `"'`)
+			if item != "" {
+				sources = append(sources, item)
+			}
+		}
+	}
+	return dedupeStrings(sources)
+}
+
+func workspaceWikiLinks(content string) []string {
+	matches := knowledgeWorkspaceWikiLinkPattern.FindAllStringSubmatch(content, -1)
+	links := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) == 2 {
+			links = append(links, strings.TrimSpace(match[1]))
+		}
+	}
+	return links
+}
+
+func resolveWorkspaceGraphTarget(raw string, nodes map[string]*knowledgeWorkspaceGraphRawNode) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if _, ok := nodes[trimmed]; ok {
+		return trimmed
+	}
+	normalized := strings.ReplaceAll(strings.ToLower(trimmed), " ", "-")
+	for id := range nodes {
+		idLower := strings.ToLower(id)
+		if idLower == strings.ToLower(trimmed) || idLower == normalized || strings.ReplaceAll(idLower, " ", "-") == normalized {
+			return id
+		}
+	}
+	return ""
+}
+
+func calculateWorkspaceGraphRelevance(
+	a *knowledgeWorkspaceGraphRawNode,
+	b *knowledgeWorkspaceGraphRawNode,
+	nodes map[string]*knowledgeWorkspaceGraphRawNode,
+) float64 {
+	if a == nil || b == nil || a.id == b.id {
+		return 0
+	}
+	direct := 0.0
+	if a.out[b.id] {
+		direct += 1
+	}
+	if b.out[a.id] {
+		direct += 1
+	}
+
+	sourceOverlap := 0.0
+	aSources := map[string]bool{}
+	for _, source := range a.sources {
+		aSources[source] = true
+	}
+	for _, source := range b.sources {
+		if aSources[source] {
+			sourceOverlap += 1
+		}
+	}
+
+	neighborsA := workspaceGraphNeighbors(a)
+	neighborsB := workspaceGraphNeighbors(b)
+	adamic := 0.0
+	for neighborID := range neighborsA {
+		if !neighborsB[neighborID] {
+			continue
+		}
+		neighbor := nodes[neighborID]
+		if neighbor == nil {
+			continue
+		}
+		degree := workspaceGraphDegree(neighbor)
+		if degree < 2 {
+			degree = 2
+		}
+		adamic += 1 / math.Log(float64(degree))
+	}
+
+	affinity := 0.5
+	if typeMap, ok := knowledgeWorkspaceTypeAffinity[a.kind]; ok {
+		if value, ok := typeMap[b.kind]; ok {
+			affinity = value
+		}
+	}
+	// Keep the same four-signal relevance model as llm_wiki: direct links,
+	// shared sources, common neighbors, and page-type affinity.
+	score := direct*3.0 + sourceOverlap*4.0 + adamic*1.5 + affinity
+	return math.Round(score*1000) / 1000
+}
+
+func workspaceGraphNeighbors(node *knowledgeWorkspaceGraphRawNode) map[string]bool {
+	neighbors := map[string]bool{}
+	for id := range node.out {
+		neighbors[id] = true
+	}
+	for id := range node.in {
+		neighbors[id] = true
+	}
+	return neighbors
+}
+
+func workspaceGraphDegree(node *knowledgeWorkspaceGraphRawNode) int {
+	if node == nil {
+		return 0
+	}
+	return len(node.out) + len(node.in)
+}
+
+func assignWorkspaceGraphCommunities(
+	nodes map[string]*knowledgeWorkspaceGraphRawNode,
+	edges []knowledgeWorkspaceGraphEdge,
+) (map[string]int, []knowledgeWorkspaceGraphCommunity) {
+	adjacency := make(map[string]map[string]float64, len(nodes))
+	for id := range nodes {
+		adjacency[id] = map[string]float64{}
+	}
+	totalWeight := 0.0
+	for _, edge := range edges {
+		if adjacency[edge.Source] == nil || adjacency[edge.Target] == nil {
+			continue
+		}
+		weight := edge.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		adjacency[edge.Source][edge.Target] += weight
+		adjacency[edge.Target][edge.Source] += weight
+		totalWeight += weight
+	}
+	assignments := map[string]int{}
+	ids := make([]string, 0, len(nodes))
+	for id := range nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	degrees := make(map[string]float64, len(nodes))
+	communityTotals := make(map[int]float64, len(nodes))
+	for index, id := range ids {
+		assignments[id] = index
+		for _, weight := range adjacency[id] {
+			degrees[id] += weight
+		}
+		communityTotals[index] = degrees[id]
+	}
+
+	if totalWeight > 0 {
+		doubleTotalWeight := 2 * totalWeight
+		// This mirrors the Python worker's deterministic Louvain-style first
+		// phase. The gateway serves the browser graph, so it must not collapse
+		// every connected component into one community when weak bridge edges
+		// connect otherwise distinct topics.
+		for iteration := 0; iteration < 20; iteration++ {
+			moved := false
+			for _, nodeID := range ids {
+				current := assignments[nodeID]
+				nodeDegree := degrees[nodeID]
+				communityTotals[current] -= nodeDegree
+				weightsByCommunity := map[int]float64{}
+				communityIDs := make([]int, 0)
+				for neighborID, weight := range adjacency[nodeID] {
+					communityID := assignments[neighborID]
+					if _, ok := weightsByCommunity[communityID]; !ok {
+						communityIDs = append(communityIDs, communityID)
+					}
+					weightsByCommunity[communityID] += weight
+				}
+				sort.Ints(communityIDs)
+				bestCommunity := current
+				bestGain := 0.0
+				for _, communityID := range communityIDs {
+					gain := weightsByCommunity[communityID] - nodeDegree*communityTotals[communityID]/doubleTotalWeight
+					if gain > bestGain+1e-9 {
+						bestGain = gain
+						bestCommunity = communityID
+					}
+				}
+				assignments[nodeID] = bestCommunity
+				communityTotals[bestCommunity] += nodeDegree
+				if bestCommunity != current {
+					moved = true
+				}
+			}
+			if !moved {
+				break
+			}
+		}
+	}
+
+	groups := map[int][]string{}
+	for _, nodeID := range ids {
+		communityID := assignments[nodeID]
+		groups[communityID] = append(groups[communityID], nodeID)
+	}
+	groupIDs := make([]int, 0, len(groups))
+	for communityID := range groups {
+		groupIDs = append(groupIDs, communityID)
+	}
+	sort.Ints(groupIDs)
+
+	communities := make([]knowledgeWorkspaceGraphCommunity, 0, len(groups))
+	for _, communityID := range groupIDs {
+		members := groups[communityID]
+		memberSet := map[string]bool{}
+		for _, member := range members {
+			memberSet[member] = true
+		}
+		actualEdges := 0
+		for _, edge := range edges {
+			if memberSet[edge.Source] && memberSet[edge.Target] {
+				actualEdges++
+			}
+		}
+		possibleEdges := 1.0
+		if len(members) > 1 {
+			possibleEdges = float64(len(members)*(len(members)-1)) / 2
+		}
+		sort.Slice(members, func(i, j int) bool {
+			leftDegree := workspaceGraphDegree(nodes[members[i]])
+			rightDegree := workspaceGraphDegree(nodes[members[j]])
+			if leftDegree != rightDegree {
+				return leftDegree > rightDegree
+			}
+			return nodes[members[i]].label < nodes[members[j]].label
+		})
+		topNodes := make([]string, 0)
+		for _, member := range members {
+			if len(topNodes) >= 5 {
+				break
+			}
+			topNodes = append(topNodes, nodes[member].label)
+		}
+		communities = append(communities, knowledgeWorkspaceGraphCommunity{
+			ID:        communityID,
+			NodeCount: len(memberSet),
+			Cohesion:  math.Round((float64(actualEdges)/possibleEdges)*1000) / 1000,
+			TopNodes:  topNodes,
+		})
+	}
+	// Preserve llm_wiki's stable display contract: largest communities get the
+	// lowest ids, and node.community points at the displayed order.
+	sort.Slice(communities, func(i, j int) bool {
+		if communities[i].NodeCount != communities[j].NodeCount {
+			return communities[i].NodeCount > communities[j].NodeCount
+		}
+		return communities[i].ID < communities[j].ID
+	})
+	remap := map[int]int{}
+	for nextID := range communities {
+		oldID := communities[nextID].ID
+		remap[oldID] = nextID
+		communities[nextID].ID = nextID
+	}
+	for nodeID, oldID := range assignments {
+		assignments[nodeID] = remap[oldID]
+	}
+	return assignments, communities
+}
+
+func buildWorkspaceGraphInsights(
+	nodes []knowledgeWorkspaceGraphNode,
+	edges []knowledgeWorkspaceGraphEdge,
+	communities []knowledgeWorkspaceGraphCommunity,
+) knowledgeWorkspaceGraphInsights {
+	structural := map[string]bool{"index": true, "log": true, "overview": true}
+	isolated := make([]knowledgeWorkspaceGraphInsightNode, 0)
+	for _, node := range nodes {
+		if len(isolated) >= 8 {
+			break
+		}
+		if node.LinkCount <= 1 && !structural[node.ID] && node.Type != "overview" {
+			isolated = append(isolated, knowledgeWorkspaceGraphInsightNode{ID: node.ID, Label: node.Label})
+		}
+	}
+	sparse := make([]knowledgeWorkspaceGraphCommunity, 0)
+	for _, community := range communities {
+		if len(sparse) >= 5 {
+			break
+		}
+		if community.Cohesion < 0.15 && community.NodeCount >= 3 {
+			sparse = append(sparse, community)
+		}
+	}
+	return knowledgeWorkspaceGraphInsights{
+		IsolatedNodes:     isolated,
+		SparseCommunities: sparse,
+		EdgeCount:         len(edges),
+	}
+}
+
+func dedupeStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 func knowledgeDocumentRelativePrefixFromStorageRef(storageRef string) string {

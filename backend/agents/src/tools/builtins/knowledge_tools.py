@@ -12,6 +12,134 @@ def _runtime_identity(runtime: ToolRuntime[ContextT, ThreadState]) -> tuple[str,
     return resolve_knowledge_runtime_identity(getattr(runtime, "context", None))
 
 
+@tool("search_knowledge_workspace", parse_docstring=True)
+def search_knowledge_workspace(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    query: str,
+    workspace_name_or_id: str | None = None,
+    limit: int = 10,
+) -> str:
+    """Search attached llm-wiki style knowledge workspaces.
+
+    This is the default first step for questions over attached knowledge.
+    It searches generated `wiki/**/*.md` pages across the attached workspaces
+    unless workspace_name_or_id narrows the scope. Use exact workspace_id values
+    from <knowledge_attached_workspaces> when available.
+
+    Args:
+        query: The natural-language or keyword query to search for.
+        workspace_name_or_id: Optional workspace id or exact workspace name.
+        limit: Maximum number of ranked results to return, capped by the runtime.
+    """
+    user_id, thread_id = _runtime_identity(runtime)
+    return KnowledgeService().search_knowledge_workspace(
+        user_id=user_id,
+        thread_id=thread_id,
+        query=query,
+        workspace_name_or_id=workspace_name_or_id,
+        limit=limit,
+    )
+
+
+@tool("get_wiki_page", parse_docstring=True)
+def get_wiki_page(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    workspace_name_or_id: str,
+    page_path: str,
+) -> str:
+    """Read a generated wiki page from an attached knowledge workspace.
+
+    Use this after search_knowledge_workspace returns a relevant page path.
+    The page_path must be a workspace-relative path such as
+    `wiki/sources/source-name.md`.
+
+    Args:
+        workspace_name_or_id: Workspace id or exact workspace name from <knowledge_attached_workspaces>.
+        page_path: Workspace-relative wiki page path.
+    """
+    user_id, thread_id = _runtime_identity(runtime)
+    return KnowledgeService().get_wiki_page(
+        user_id=user_id,
+        thread_id=thread_id,
+        workspace_name_or_id=workspace_name_or_id,
+        page_path=page_path,
+    )
+
+
+@tool("get_source_evidence", parse_docstring=True)
+def get_source_evidence(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    workspace_name_or_id: str,
+    query: str,
+    source_path_or_name: str | None = None,
+    max_snippets: int = 5,
+) -> str:
+    """Read narrow original-source snippets from a knowledge workspace raw cache.
+
+    Use this when a wiki page indicates that the answer needs original extracted
+    source text. The tool searches `raw/sources/.cache/**` and returns bounded
+    snippets instead of exposing full raw files to the model.
+
+    Args:
+        workspace_name_or_id: Workspace id or exact workspace name from <knowledge_attached_workspaces>.
+        query: Query used to locate snippets inside extracted source text.
+        source_path_or_name: Optional raw cache path or filename substring to narrow the source.
+        max_snippets: Maximum snippets to return.
+    """
+    user_id, thread_id = _runtime_identity(runtime)
+    return KnowledgeService().get_source_evidence(
+        user_id=user_id,
+        thread_id=thread_id,
+        workspace_name_or_id=workspace_name_or_id,
+        query=query,
+        source_path_or_name=source_path_or_name,
+        max_snippets=max_snippets,
+    )
+
+
+@tool("get_knowledge_graph", parse_docstring=True)
+def get_knowledge_graph(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    workspace_name_or_id: str | None = None,
+) -> str:
+    """Inspect the wiki graph for attached knowledge workspaces.
+
+    The graph is built from generated wiki pages and `[[wikilink]]`
+    references, with relevance weights based on links, shared sources, common
+    neighbors, and type affinity.
+
+    Args:
+        workspace_name_or_id: Optional workspace id or exact workspace name.
+    """
+    user_id, thread_id = _runtime_identity(runtime)
+    return KnowledgeService().get_knowledge_graph(
+        user_id=user_id,
+        thread_id=thread_id,
+        workspace_name_or_id=workspace_name_or_id,
+    )
+
+
+@tool("get_workspace_file_tree", parse_docstring=True)
+def get_workspace_file_tree(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    workspace_name_or_id: str | None = None,
+) -> str:
+    """List files in attached llm-wiki style knowledge workspaces.
+
+    Use this for navigation or debugging the generated workspace structure.
+    For answering knowledge questions, prefer search_knowledge_workspace first.
+
+    Args:
+        workspace_name_or_id: Optional workspace id or exact workspace name.
+    """
+    user_id, thread_id = _runtime_identity(runtime)
+    return KnowledgeService().get_workspace_file_tree(
+        user_id=user_id,
+        thread_id=thread_id,
+        workspace_name_or_id=workspace_name_or_id,
+    )
+
+
 @tool("get_document_tree", parse_docstring=True)
 def get_document_tree(
     runtime: ToolRuntime[ContextT, ThreadState],
@@ -22,8 +150,8 @@ def get_document_tree(
 ) -> str:
     """Inspect a document_tree window for one attached knowledge document.
 
-    Use this after choosing a ready document from the middleware-injected
-    <knowledge_attached_documents> prompt block.
+    Opt-in compatibility tool. Use this only when an explicitly enabled
+    PageTree workflow already knows a ready attached document id or exact name.
     Root and subtree windows are capped at max_depth=2 even if you request a larger number.
     For large documents, the root call may intentionally collapse to a top-level overview only,
     even when you requested max_depth=2. When that happens, the payload reports
@@ -38,7 +166,7 @@ def get_document_tree(
     a narrower node_id instead of using grep/read_file on the spill file.
 
     Args:
-        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+        document_name_or_id: Ready attached document id or exact document name.
             Prefer the injected ASCII document_id when available.
         node_id: Optional node id whose subtree should be returned. Omit this to inspect the root tree.
         max_depth: Requested nested depth for the subtree window. Values above 2 are clamped to 2.
@@ -76,7 +204,7 @@ def get_document_evidence(
     that an image exists.
 
     Args:
-        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+        document_name_or_id: Ready attached document id or exact document name.
             Prefer the injected ASCII document_id when available.
         node_ids: One or more node ids separated by commas.
     """
@@ -108,7 +236,7 @@ def get_document_tree_node_detail(
     over the same document unless the knowledge index clearly failed to expose the needed content.
 
     Args:
-        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+        document_name_or_id: Ready attached document id or exact document name.
             Prefer the injected ASCII document_id when available.
         node_ids: One or more node ids separated by commas.
     """
@@ -137,7 +265,7 @@ def get_document_image(
     visual inspection; call read_file(file_path=...) first, then answer.
 
     Args:
-        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+        document_name_or_id: Ready attached document id or exact document name.
             Prefer the injected ASCII document_id when available.
         page_number: 1-based PDF page number to render as an image.
     """

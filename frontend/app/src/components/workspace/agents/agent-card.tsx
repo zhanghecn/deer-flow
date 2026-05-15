@@ -171,6 +171,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             </Button>
             {agent.canManage && (
               <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={handleOpenSettings}>
+                <span className="sr-only">{t.common.settings}</span>
                 <Settings2Icon className="h-4 w-4" />
               </Button>
             )}
@@ -182,6 +183,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 onClick={handlePublish}
                 disabled={publishAgentMutation.isPending}
               >
+                <span className="sr-only">{t.agents.publishToProd}</span>
                 <RocketIcon className="h-4 w-4" />
               </Button>
             )}
@@ -192,6 +194,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
                 onClick={() => setDeleteOpen(true)}
               >
+                <span className="sr-only">{t.agents.delete}</span>
                 <Trash2Icon className="h-4 w-4" />
               </Button>
             )}

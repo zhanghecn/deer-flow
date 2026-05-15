@@ -9,10 +9,14 @@ from src.config.app_config import load_tool_configs
 from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import (
+    get_knowledge_graph,
     get_document_evidence,
     get_document_image,
     get_document_tree,
     get_document_tree_node_detail,
+    get_source_evidence,
+    get_wiki_page,
+    get_workspace_file_tree,
     install_skill_from_registry,
     present_file_tool,
     push_agent_prod,
@@ -20,6 +24,7 @@ from src.tools.builtins import (
     question_tool,
     save_agent_to_store,
     save_skill_to_store,
+    search_knowledge_workspace,
     setup_agent,
 )
 
@@ -29,11 +34,16 @@ logger = logging.getLogger(__name__)
 # Only the default slice joins the common runtime surface; compatibility tools
 # remain opt-in via explicit `tool_names=[...]`.
 DEFAULT_KNOWLEDGE_BUILTIN_TOOLS = [
+    search_knowledge_workspace,
+    get_wiki_page,
+    get_source_evidence,
+    get_knowledge_graph,
+    get_workspace_file_tree,
+]
+COMPATIBILITY_KNOWLEDGE_BUILTIN_TOOLS = [
     get_document_tree,
     get_document_evidence,
     get_document_image,
-]
-COMPATIBILITY_KNOWLEDGE_BUILTIN_TOOLS = [
     get_document_tree_node_detail,
 ]
 

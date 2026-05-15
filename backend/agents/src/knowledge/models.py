@@ -201,6 +201,17 @@ class KnowledgeBaseDetail(BaseModel):
     documents: list[KnowledgeDocumentRecord]
 
 
+class KnowledgeWorkspaceRecord(BaseModel):
+    id: str
+    owner_id: str
+    name: str
+    description: str | None = None
+    source_type: str | None = None
+    visibility: str | None = None
+    ready_document_count: int = 0
+    document_count: int = 0
+
+
 class KnowledgeToolNextSteps(BaseModel):
     summary: str
     options: list[str] = Field(default_factory=list)

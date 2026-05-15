@@ -9,6 +9,9 @@ import type {
   KnowledgeBaseSettingsResponse,
   KnowledgeDocumentDebugPayload,
   KnowledgeDocumentBuildEventsResponse,
+  KnowledgeWorkspaceFileResponse,
+  KnowledgeWorkspaceGraphResponse,
+  KnowledgeWorkspaceTreeResponse,
   KnowledgeTreeNode,
 } from "./types";
 
@@ -277,6 +280,38 @@ export async function getKnowledgeDocumentDebugPayload(
   return fetchKnowledgeJson<KnowledgeDocumentDebugPayload>(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/debug`,
     "Failed to load knowledge debug payload",
+  );
+}
+
+export async function getKnowledgeWorkspaceTree(
+  knowledgeBaseId: string,
+): Promise<KnowledgeWorkspaceTreeResponse> {
+  return fetchKnowledgeJson<KnowledgeWorkspaceTreeResponse>(
+    `${getBackendBaseURL()}/api/knowledge/bases/${knowledgeBaseId}/workspace/tree`,
+    "Failed to load knowledge workspace tree",
+  );
+}
+
+export async function getKnowledgeWorkspaceFile(
+  knowledgeBaseId: string,
+  path: string,
+): Promise<KnowledgeWorkspaceFileResponse> {
+  const url = new URL(
+    `${getBackendBaseURL()}/api/knowledge/bases/${knowledgeBaseId}/workspace/file`,
+  );
+  url.searchParams.set("path", path);
+  return fetchKnowledgeJson<KnowledgeWorkspaceFileResponse>(
+    url,
+    "Failed to load knowledge workspace file",
+  );
+}
+
+export async function getKnowledgeWorkspaceGraph(
+  knowledgeBaseId: string,
+): Promise<KnowledgeWorkspaceGraphResponse> {
+  return fetchKnowledgeJson<KnowledgeWorkspaceGraphResponse>(
+    `${getBackendBaseURL()}/api/knowledge/bases/${knowledgeBaseId}/workspace/graph`,
+    "Failed to load knowledge workspace graph",
   );
 }
 

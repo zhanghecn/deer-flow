@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.knowledge.models import IndexedDocument, QueuedKnowledgeBuildJob
-from src.knowledge.worker import KnowledgeBuildWorker, process_build_job
 from src.knowledge import worker as knowledge_worker
+from src.knowledge.models import IndexedDocument, KnowledgeWorkspaceRecord, QueuedKnowledgeBuildJob
+from src.knowledge.worker import KnowledgeBuildWorker, process_build_job
 
 
 class _FakeRepository:
@@ -16,6 +16,16 @@ class _FakeRepository:
         self.document_errors: list[dict] = []
         self.replaced_documents: list[dict] = []
         self.reuse_queries: list[dict] = []
+        self.workspace_record = KnowledgeWorkspaceRecord(
+            id="base-1",
+            owner_id="user-1",
+            name="Demo",
+            description=None,
+            source_type="library",
+            visibility="private",
+            document_count=1,
+            ready_document_count=1,
+        )
 
     def claim_next_queued_job(self) -> QueuedKnowledgeBuildJob | None:
         job = self._job
@@ -43,6 +53,10 @@ class _FakeRepository:
 
     def mark_document_error(self, **kwargs) -> None:
         self.document_errors.append(kwargs)
+
+    def get_workspace_record(self, *, knowledge_base_id: str):
+        assert knowledge_base_id == "base-1"
+        return self.workspace_record
 
 
 def _queued_job(*, model_name: str | None) -> QueuedKnowledgeBuildJob:
@@ -110,6 +124,11 @@ def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(knowledge_worker, "build_document_index", fake_build_document_index)
+    monkeypatch.setattr(
+        knowledge_worker,
+        "_sync_workspace_artifacts",
+        lambda **_kwargs: None,
+    )
 
     worker = KnowledgeBuildWorker(repository_factory=lambda: repository, poll_interval_seconds=0.1)
 

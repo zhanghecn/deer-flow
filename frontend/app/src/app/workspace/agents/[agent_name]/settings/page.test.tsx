@@ -1,43 +1,32 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
+import { I18nProvider } from "@/core/i18n/context";
 
 import AgentSettingsPage from "./page";
 
-const dialogMock = vi.fn();
-
-vi.mock("@/components/workspace/agents/agent-gallery", () => ({
-  AgentGallery: () => <div data-testid="agent-gallery" />,
-}));
-
-vi.mock("@/components/workspace/agent-settings-dialog", () => ({
-  AgentSettingsDialog: (props: {
-    open: boolean;
-    agentName: string;
-    agentStatus: "dev" | "prod";
-    executionBackend?: "remote";
-    remoteSessionId?: string;
-    onOpenChange: (open: boolean) => void;
-  }) => {
-    dialogMock(props);
-    return (
-      <div>
-        <div data-testid="agent-settings-dialog">
-          {props.agentName}:{props.agentStatus}:{props.executionBackend ?? "local"}:
-          {props.remoteSessionId ?? ""}
-        </div>
-        <button type="button" onClick={() => props.onOpenChange(false)}>
-          close settings
-        </button>
-      </div>
-    );
-  },
-}));
-
 describe("AgentSettingsPage", () => {
-  it("renders the gallery and opens the selected agent settings route", () => {
-    render(
+  function renderWithProviders(children: ReactNode) {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider initialLocale="en-US">{children}</I18nProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("renders the selected agent settings route", () => {
+    renderWithProviders(
       <MemoryRouter
         initialEntries={[
           "/workspace/agents/reviewer/settings?agent_status=prod&execution_backend=remote&remote_session_id=remote-1",
@@ -52,25 +41,15 @@ describe("AgentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByTestId("agent-gallery")).toBeInTheDocument();
-    expect(screen.getByTestId("agent-settings-dialog")).toHaveTextContent(
-      "reviewer:prod:remote:remote-1",
-    );
-    expect(dialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        open: true,
-        agentName: "reviewer",
-        agentStatus: "prod",
-        executionBackend: "remote",
-        remoteSessionId: "remote-1",
-      }),
-    );
+    expect(screen.getByRole("heading", { name: "reviewer" })).toBeInTheDocument();
+    expect(screen.getByText("prod")).toBeInTheDocument();
+    expect(screen.getByText("Remote")).toBeInTheDocument();
   });
 
-  it("returns to the agent gallery when the settings dialog closes", async () => {
+  it("returns to the agent gallery when the back control is clicked", async () => {
     const user = userEvent.setup();
 
-    render(
+    renderWithProviders(
       <MemoryRouter
         initialEntries={["/workspace/agents/reviewer/settings?agent_status=dev"]}
       >
@@ -84,7 +63,7 @@ describe("AgentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("button", { name: /close settings/i }));
+    await user.click(screen.getByRole("button", { name: /back to gallery/i }));
 
     expect(screen.getByText("agent gallery route")).toBeInTheDocument();
   });

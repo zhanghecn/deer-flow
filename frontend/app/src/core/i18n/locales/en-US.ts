@@ -345,9 +345,9 @@ export const enUS: Translations = {
     uploadButton: "Upload knowledge",
     newTitle: "New Knowledge Base",
     newDescription:
-      "Upload PDF, Word, or Markdown files and build a persistent document tree index for this thread.",
+      "Upload PDF, Word, or Markdown files and build a persistent Wiki Workspace for this thread.",
     newDescriptionGlobal:
-      "Upload PDF, Word, or Markdown files and build a shared persistent document tree index for the library.",
+      "Upload PDF, Word, or Markdown files and build a shared persistent Wiki Workspace for the library.",
     modelLabel: "Index model",
     modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
@@ -366,10 +366,10 @@ export const enUS: Translations = {
       "After upload, open the knowledge library entry to monitor indexing progress and inspect the parsed result.",
     managerTitle: "Knowledge Library",
     managerDescription:
-      "Browse shared knowledge by owner, inspect build progress, and review the stored PageTree index and canonical text.",
+      "Browse shared knowledge by owner, inspect build progress, and review the generated Wiki Workspace.",
     managerTitleGlobal: "Shared Knowledge Library",
     managerDescriptionGlobal:
-      "Browse owner folders, inspect indexing progress, and compare stored PageTree data with the canonical source text.",
+      "Browse owner folders, inspect indexing progress, and review Wiki Workspace files, graph, and source text.",
     libraryTitle: "Shared Library",
     libraryDescription:
       "Knowledge bases are grouped by owner. Attach a base to the current thread to make it available to the agent tools.",
@@ -381,6 +381,57 @@ export const enUS: Translations = {
     noDocumentSelectedTitle: "No Document Selected",
     noDocumentSelectedDescription:
       "Choose a document on the left to inspect its build status, tree, and stored debug payload.",
+    sourcesTab: "Sources",
+    wikiWorkspaceTab: "Wiki Workspace",
+    knowledgeGraphTab: "Graph",
+    workspaceFiles: "Workspace files",
+    sourceDocuments: "Source documents",
+    openSourcePreview: "Preview",
+    loadingWorkspace: "Loading workspace...",
+    emptyWorkspace: "No workspace files yet.",
+    workspaceDefaultTitle: "Wiki Workspace",
+    loadingWorkspaceFile: "Loading file...",
+    selectWorkspaceFile: "Select a workspace file.",
+    loadingGraph: "Loading graph...",
+    emptyGraph: "No graph nodes yet.",
+    graphNodeCount: (count: number) =>
+      `${count} graph node${count === 1 ? "" : "s"}`,
+    graphCommunity: (community: number) => `community ${community}`,
+    graphLinks: (count: number) => `${count} link${count === 1 ? "" : "s"}`,
+    graphEdges: "Edges",
+    graphSelectedNode: "Selected node",
+    graphNoNodeSelected: "Click a graph node to inspect its path and links.",
+    graphOpenInWiki: "Open in Wiki",
+    graphCommunities: "Communities",
+    graphInsights: "Graph insights",
+    graphIsolatedNodes: (count: number) =>
+      `${count} isolated node${count === 1 ? "" : "s"}`,
+    graphSparseCommunities: (count: number) =>
+      `${count} sparse communit${count === 1 ? "y" : "ies"}`,
+    graphRenderedEdges: (rendered: number, total: number) =>
+      `${rendered} / ${total} edges rendered`,
+    graphNodeVisibleCount: (visible: number, total: number) =>
+      `${visible} / ${total} pages`,
+    graphFilter: "Filter",
+    graphFilters: "Graph filters",
+    graphReset: "Reset",
+    graphTypeMode: "Type",
+    graphCommunityMode: "Community",
+    graphHideStructural: "Hide index / overview",
+    graphHideIsolated: "Hide isolated nodes",
+    graphMaxLinks: "Maximum links",
+    graphAnyLinks: "Any",
+    graphNodeTypes: "Node types",
+    graphNoVisibleNodes: "No visible graph nodes with the current filters.",
+    graphHideThisNode: "Hide this node",
+    graphShowAll: "Show all",
+    graphRelevance: "relevance",
+    graphIsolatedInsight:
+      "This page has few connections. Add cross-links or review its source coverage.",
+    graphSparseCommunityTitle: (name: string) => `Sparse cluster: ${name}`,
+    graphSparseCommunityDescription: (nodeCount: number, cohesion: number) =>
+      `${nodeCount} pages with cohesion ${cohesion.toFixed(2)}. Internal connections are weak.`,
+    graphNoInsights: "No active graph insights.",
     baseCount: (count: number) => `${count} base${count === 1 ? "" : "s"}`,
     documentCount: (count: number) =>
       `${count} document${count === 1 ? "" : "s"}`,

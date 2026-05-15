@@ -9,6 +9,7 @@ import (
 	"os"
 	ppath "path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
@@ -119,6 +120,56 @@ func (s *Store) ReadAll(ctx context.Context, storageRef string) ([]byte, error) 
 	}
 	defer object.Close()
 	return io.ReadAll(object)
+}
+
+func (s *Store) ListRelativePaths(ctx context.Context, relativePrefix string) ([]string, error) {
+	cleanPrefix := cleanRelativeRef(relativePrefix)
+	if cleanPrefix == "" {
+		return nil, fmt.Errorf("knowledge asset prefix is required")
+	}
+	if s.backend != "s3" {
+		root := s.filesystemPath(cleanPrefix)
+		paths := make([]string, 0)
+		err := filepath.WalkDir(root, func(currentPath string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if os.IsNotExist(walkErr) {
+					return nil
+				}
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			relPath, err := filepath.Rel(root, currentPath)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, filepath.ToSlash(relPath))
+			return nil
+		})
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		sort.Strings(paths)
+		return paths, err
+	}
+
+	objectPrefix := strings.TrimSuffix(normalizeObjectKey(cleanPrefix), "/") + "/"
+	paths := make([]string, 0)
+	for object := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    objectPrefix,
+		Recursive: true,
+	}) {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+		if object.Key == "" || strings.HasSuffix(object.Key, "/") || !strings.HasPrefix(object.Key, objectPrefix) {
+			continue
+		}
+		paths = append(paths, strings.TrimPrefix(object.Key, objectPrefix))
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func (s *Store) SyncDirectory(ctx context.Context, relativePrefix string, localDir string) error {
