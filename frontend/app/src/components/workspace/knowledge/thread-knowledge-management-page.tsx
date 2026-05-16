@@ -100,22 +100,25 @@ import { cn } from "@/lib/utils";
 
 import { JsonInspector } from "./json-inspector";
 import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
+import { KnowledgeBaseBuildSummary } from "./knowledge-build-summary";
+import {
+  formatKnowledgeTimestamp,
+  statusLabel,
+  statusTone,
+  visibilityLabel,
+  type KnowledgeI18n,
+} from "./knowledge-display";
+import type {
+  BaseWorkbenchTab,
+  KnowledgePreviewFocus,
+  KnowledgePreviewMode,
+  LibraryDocumentView,
+} from "./knowledge-management-types";
 import {
   ExplorerEmptyState,
   KnowledgePreviewPanel,
 } from "./knowledge-preview-panel";
 import { locatorLabel, TreeNodeView } from "./tree-node-view";
-
-export type LibraryDocumentView = KnowledgeDocument & {
-  owner_id: string;
-  owner_name: string;
-  knowledge_base_id: string;
-  knowledge_base_name: string;
-  knowledge_base_description?: string;
-  attached_to_thread: boolean;
-  visibility: string;
-  preview_enabled: boolean;
-};
 
 type KnowledgeOwnerGroup = {
   ownerId: string;
@@ -129,25 +132,8 @@ type KnowledgeClearTarget = {
   baseCount: number;
 };
 
-type BaseWorkbenchTab = "wiki" | "graph";
-
-export type KnowledgePreviewMode = "preview" | "canonical";
-
-export type KnowledgePreviewFocus = {
-  nodeId?: string;
-  title?: string;
-  locatorLabel?: string;
-  page?: number;
-  pageEnd?: number;
-  heading?: string;
-  line?: number;
-  lineEnd?: number;
-};
-
 const panelLabelClassName =
   "text-muted-foreground text-xs font-medium";
-
-type KnowledgeI18n = ReturnType<typeof useI18n>["t"];
 
 // URL query params are a navigation source of truth. During a base/document
 // jump, React effects still see the previous selected state for one render, so
@@ -213,46 +199,6 @@ export function shouldDeferKnowledgeSelectionUrlSync({
   return false;
 }
 
-function statusTone(status: string): "default" | "secondary" | "destructive" {
-  switch (status) {
-    case "ready":
-      return "default";
-    case "error":
-      return "destructive";
-    default:
-      return "secondary";
-  }
-}
-
-function statusLabel(status: string, t: KnowledgeI18n) {
-  switch (status) {
-    case "queued":
-      return t.knowledge.status.queued;
-    case "ready":
-      return t.knowledge.status.ready;
-    case "processing":
-      return t.knowledge.status.processing;
-    case "error":
-      return t.knowledge.status.error;
-    default:
-      return status;
-  }
-}
-
-function visibilityLabel(
-  visibility: string,
-  t: KnowledgeI18n,
-) {
-  switch (visibility) {
-    case "shared":
-      return t.knowledge.visibilityShared;
-    case "private":
-      return t.knowledge.visibilityPrivate;
-    default:
-      return visibility;
-  }
-}
-
 function knowledgeBaseContextLabel(knowledgeBase: KnowledgeBase) {
   const primaryDocument = knowledgeBase.documents[0]?.display_name;
   if (!primaryDocument) {
@@ -264,17 +210,6 @@ function knowledgeBaseContextLabel(knowledgeBase: KnowledgeBase) {
   }
 
   return `${primaryDocument} +${knowledgeBase.documents.length - 1}`;
-}
-
-function formatTimestamp(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleString();
 }
 
 function toLibraryDocumentView(
@@ -2170,10 +2105,21 @@ export function ThreadKnowledgeManagementPage() {
     () => flattenWorkspaceFiles(workspaceTreeQuery.data?.tree ?? []),
     [workspaceTreeQuery.data?.tree],
   );
+  const effectiveSelectedWorkspacePath = useMemo(() => {
+    if (!selectedWorkspacePath) {
+      return null;
+    }
+    // Workspace paths are scoped to one knowledge base. During base switches,
+    // React can render once with the previous path before the reset effect runs;
+    // only fetch a file after the current base tree proves that path exists.
+    return workspaceFiles.some((file) => file.path === selectedWorkspacePath)
+      ? selectedWorkspacePath
+      : null;
+  }, [selectedWorkspacePath, workspaceFiles]);
   const workspaceFileQuery = useKnowledgeWorkspaceFile(
     selectedBase?.id,
-    selectedWorkspacePath ?? undefined,
-    Boolean(selectedBase && selectedWorkspacePath),
+    effectiveSelectedWorkspacePath ?? undefined,
+    Boolean(selectedBase && effectiveSelectedWorkspacePath),
   );
   const workspaceGraphQuery = useKnowledgeWorkspaceGraph(
     selectedBase?.id,
@@ -2849,6 +2795,12 @@ export function ThreadKnowledgeManagementPage() {
                   </>
                 )}
               </div>
+              {selectedBase ? (
+                <KnowledgeBaseBuildSummary
+                  documents={selectedBase.documents}
+                  className="mt-4 max-w-3xl"
+                />
+              ) : null}
             </div>
 
             <ScrollArea className="min-h-0 flex-1">
@@ -2959,7 +2911,7 @@ export function ThreadKnowledgeManagementPage() {
                         ? workspaceTreeQuery.error
                         : null
                     }
-                    selectedWorkspacePath={selectedWorkspacePath}
+                    selectedWorkspacePath={effectiveSelectedWorkspacePath}
                     onSelectWorkspacePath={setSelectedWorkspacePath}
                     workspaceFileContent={workspaceFileQuery.data?.content}
                     workspaceFileLoading={workspaceFileQuery.isLoading}
@@ -3181,7 +3133,7 @@ export function ThreadKnowledgeManagementPage() {
                                     {t.knowledge.updatedAtLabel}
                                   </div>
                                   <div className="mt-2 text-sm font-medium">
-                                    {formatTimestamp(
+                                    {formatKnowledgeTimestamp(
                                       selectedDocument.latest_build_job
                                         ?.updated_at ??
                                         selectedDocument.updated_at,

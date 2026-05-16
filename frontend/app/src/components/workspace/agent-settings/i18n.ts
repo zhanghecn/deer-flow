@@ -61,7 +61,11 @@ export type AgentSettingsPageText = {
   loadingKnowledge: string;
   loadKnowledgeFailed: string;
   noKnowledgeBases: string;
+  knowledgeSearchPlaceholder: string;
+  noKnowledgeSearchResults: string;
   knowledgeDocumentCount: (count: number) => string;
+  knowledgeReadyCount: (count: number) => string;
+  knowledgeErrorCount: (count: number) => string;
   knowledgeSelected: (count: number) => string;
   unknownKnowledgeBase: (id: string) => string;
   remove: string;
@@ -278,8 +282,12 @@ const enUS: AgentSettingsPageText = {
   loadingKnowledge: "Loading knowledge bases...",
   loadKnowledgeFailed: "Failed to load knowledge bases.",
   noKnowledgeBases: "No ready knowledge bases available.",
+  knowledgeSearchPlaceholder: "Search knowledge bases...",
+  noKnowledgeSearchResults: "No knowledge bases match this search.",
   knowledgeDocumentCount: (count) =>
     `${count} document${count === 1 ? "" : "s"}`,
+  knowledgeReadyCount: (count) => `${count} ready`,
+  knowledgeErrorCount: (count) => `${count} error${count === 1 ? "" : "s"}`,
   knowledgeSelected: (count) => `${count} knowledge base(s) selected`,
   unknownKnowledgeBase: (id) => `Unknown knowledge base: ${id}`,
   remove: "remove",
@@ -511,7 +519,11 @@ const zhCN: AgentSettingsPageText = {
   loadingKnowledge: "正在加载知识库...",
   loadKnowledgeFailed: "知识库加载失败。",
   noKnowledgeBases: "暂无可用的 ready 知识库。",
+  knowledgeSearchPlaceholder: "搜索知识库...",
+  noKnowledgeSearchResults: "没有匹配当前搜索的知识库。",
   knowledgeDocumentCount: (count) => `${count} 个文档`,
+  knowledgeReadyCount: (count) => `${count} 个可用`,
+  knowledgeErrorCount: (count) => `${count} 个错误`,
   knowledgeSelected: (count) => `已选择 ${count} 个知识库`,
   unknownKnowledgeBase: (id) => `未知知识库：${id}`,
   remove: "移除",

@@ -360,6 +360,7 @@ export const enUS: Translations = {
       `${count} selected file${count === 1 ? " is" : "s are"} not supported for knowledge indexing.`,
     selectedFileCount: (count: number) =>
       `${count} file${count === 1 ? "" : "s"} ready to upload`,
+    selectedFileSize: (size: string) => `Total size ${size}`,
     rejectedFileCount: (count: number) =>
       `${count} file${count === 1 ? "" : "s"} rejected`,
     uploadNextStepThread:
@@ -439,6 +440,15 @@ export const enUS: Translations = {
       `${count} document${count === 1 ? "" : "s"}`,
     readyCount: (count: number) => `${count} ready`,
     activeCount: (count: number) => `${count} active`,
+    processingCount: (count: number) =>
+      `${count} indexing`,
+    queuedCount: (count: number) => `${count} queued`,
+    errorCount: (count: number) =>
+      `${count} error${count === 1 ? "" : "s"}`,
+    buildSummaryTitle: "Build health",
+    buildSummaryReady: "All available documents are ready.",
+    buildSummaryNeedsAttention: "One or more documents need attention.",
+    buildSummaryProgress: (progress: number) => `${progress}%`,
     attachedBaseCount: (count: number) =>
       `${count} attached base${count === 1 ? "" : "s"}`,
     viewDetails: "View details",

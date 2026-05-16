@@ -41,6 +41,7 @@ vi.mock("@/core/i18n/hooks", () => ({
         chooseFilesLabel: "Choose files",
         chooseFolderLabel: "Choose folder",
         selectedFileCount: (count: number) => `${count} files selected`,
+        selectedFileSize: (size: string) => `Total size ${size}`,
         rejectedFileCount: (count: number) => `${count} files rejected`,
         unsupportedFilesSelected: (count: number) =>
           `${count} unsupported files selected`,

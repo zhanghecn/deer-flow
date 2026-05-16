@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-import type { KnowledgePreviewFocus } from "./thread-knowledge-management-page";
+import type { KnowledgePreviewFocus } from "./knowledge-management-types";
 
 function slugifyHeading(text: string) {
   return text

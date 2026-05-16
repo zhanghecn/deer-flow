@@ -17,28 +17,14 @@ import { useThreadKnowledgeBases } from "@/core/knowledge/hooks";
 import type { KnowledgeBase } from "@/core/knowledge/types";
 import { cn } from "@/lib/utils";
 
+import { statusLabel } from "./knowledge-display";
+
 type AttachedKnowledgeSummary = {
   status: string;
   progress: number;
   documentCount: number;
   activeDocumentName?: string;
 };
-
-function knowledgeStatusLabel(
-  status: string,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  switch (status) {
-    case "queued":
-      return t.knowledge.status.queued;
-    case "processing":
-      return t.knowledge.status.processing;
-    case "error":
-      return t.knowledge.status.error;
-    default:
-      return t.knowledge.status.ready;
-  }
-}
 
 function knowledgeStatusClassName(status: string) {
   switch (status) {
@@ -215,8 +201,8 @@ export function ThreadKnowledgeAttachmentStrip({
                         )}
                       >
                         {summary.status === "processing"
-                          ? `${knowledgeStatusLabel(summary.status, t)} ${summary.progress}%`
-                          : knowledgeStatusLabel(summary.status, t)}
+                          ? `${statusLabel(summary.status, t)} ${summary.progress}%`
+                          : statusLabel(summary.status, t)}
                       </span>
                     </div>
                     <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1 text-[11px]">

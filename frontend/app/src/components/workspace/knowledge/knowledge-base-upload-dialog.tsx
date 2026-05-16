@@ -87,6 +87,20 @@ function knowledgeFileDisplayName(file: File) {
   return relativePath && relativePath.length > 0 ? relativePath : file.name;
 }
 
+function formatKnowledgeFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ["KB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 function configureDirectoryInput(node: HTMLInputElement | null) {
   if (!node) {
     return;
@@ -201,6 +215,10 @@ export function KnowledgeBaseUploadDialog({
           knowledgeCompileModelPriority(right),
       ),
     [models],
+  );
+  const selectedTotalSize = useMemo(
+    () => files.reduce((total, file) => total + file.size, 0),
+    [files],
   );
 
   const handleSelectedFiles = (nextFiles: File[]) => {
@@ -398,6 +416,11 @@ export function KnowledgeBaseUploadDialog({
             <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border px-3 py-2 pr-1 text-xs">
               <div className="font-medium">
                 {t.knowledge.selectedFileCount(files.length)}
+              </div>
+              <div className="text-muted-foreground">
+                {t.knowledge.selectedFileSize(
+                  formatKnowledgeFileSize(selectedTotalSize),
+                )}
               </div>
               {files.map((file) => (
                 <div

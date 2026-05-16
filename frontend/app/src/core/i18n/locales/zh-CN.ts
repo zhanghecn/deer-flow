@@ -340,6 +340,7 @@ export const zhCN: Translations = {
     unsupportedFilesSelected: (count: number) =>
       `${count} 个已选文件不支持知识库索引。`,
     selectedFileCount: (count: number) => `${count} 个文件待上传`,
+    selectedFileSize: (size: string) => `总大小 ${size}`,
     rejectedFileCount: (count: number) => `${count} 个文件已拒绝`,
     uploadNextStepThread:
       "上传后，可在聊天里的已挂载知识区打开详情并持续查看索引进度。",
@@ -413,6 +414,13 @@ export const zhCN: Translations = {
     documentCount: (count: number) => `${count} 个文档`,
     readyCount: (count: number) => `${count} 个可用`,
     activeCount: (count: number) => `${count} 个构建中`,
+    processingCount: (count: number) => `${count} 个索引中`,
+    queuedCount: (count: number) => `${count} 个排队中`,
+    errorCount: (count: number) => `${count} 个错误`,
+    buildSummaryTitle: "构建健康度",
+    buildSummaryReady: "全部可用文档已准备好。",
+    buildSummaryNeedsAttention: "有文档需要处理或重试。",
+    buildSummaryProgress: (progress: number) => `${progress}%`,
     attachedBaseCount: (count: number) => `${count} 个已挂载知识库`,
     viewDetails: "查看详情",
     backToChat: "返回对话",

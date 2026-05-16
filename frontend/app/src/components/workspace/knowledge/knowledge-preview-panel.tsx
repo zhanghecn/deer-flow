@@ -23,7 +23,7 @@ import type {
   LibraryDocumentView,
   KnowledgePreviewMode,
   KnowledgePreviewFocus,
-} from "./thread-knowledge-management-page";
+} from "./knowledge-management-types";
 
 function basenameOfPath(filepath: string) {
   const segments = filepath.split("/");

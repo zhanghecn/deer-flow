@@ -277,6 +277,7 @@ export interface Translations {
     supportedFormatsHint: string;
     unsupportedFilesSelected: (count: number) => string;
     selectedFileCount: (count: number) => string;
+    selectedFileSize: (size: string) => string;
     rejectedFileCount: (count: number) => string;
     uploadNextStepThread: string;
     uploadNextStepLibrary: string;
@@ -340,6 +341,13 @@ export interface Translations {
     documentCount: (count: number) => string;
     readyCount: (count: number) => string;
     activeCount: (count: number) => string;
+    processingCount: (count: number) => string;
+    queuedCount: (count: number) => string;
+    errorCount: (count: number) => string;
+    buildSummaryTitle: string;
+    buildSummaryReady: string;
+    buildSummaryNeedsAttention: string;
+    buildSummaryProgress: (progress: number) => string;
     attachedBaseCount: (count: number) => string;
     viewDetails: string;
     backToChat: string;

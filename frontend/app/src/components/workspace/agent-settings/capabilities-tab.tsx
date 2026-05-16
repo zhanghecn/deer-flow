@@ -33,6 +33,7 @@ import {
   skillRefKey,
 } from "@/components/workspace/agent-skill-refs";
 import { resolveEffectiveToolNames } from "@/components/workspace/agent-tool-selection";
+import { summarizeKnowledgeBase } from "@/components/workspace/knowledge/knowledge-build-summary";
 import {
   type AgentSkillRef,
   type AgentStatus,
@@ -107,7 +108,12 @@ type RuntimeMiddlewareGroup = {
 };
 
 function getRuntimeMiddlewareName(tool: ToolCatalogItem) {
-  return tool.middleware_name?.trim() || tool.group.trim() || "runtime";
+  const middlewareName = tool.middleware_name?.trim();
+  if (middlewareName !== undefined && middlewareName.length > 0) {
+    return middlewareName;
+  }
+  const groupName = tool.group.trim();
+  return groupName.length > 0 ? groupName : "runtime";
 }
 
 function formatMiddlewareTitle(name: string) {
@@ -322,11 +328,54 @@ function KnowledgeSection({
     updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
   ) => void;
 }) {
+  const [query, setQuery] = useState("");
   const selectedIds = new Set(form.knowledgeBaseIds);
   const knownIds = new Set(knowledgeBases.map((base) => base.id));
   const missingSelectedIds = form.knowledgeBaseIds.filter(
     (id) => !knownIds.has(id),
   );
+  const filteredKnowledgeBases = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return knowledgeBases;
+    }
+
+    return knowledgeBases.filter((knowledgeBase) => {
+      const documentNames = knowledgeBase.documents
+        .map((document) => document.display_name)
+        .join(" ");
+      const haystack =
+        `${knowledgeBase.name} ${knowledgeBase.owner_name} ${knowledgeBase.description ?? ""} ${documentNames}`.toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [knowledgeBases, query]);
+  const groupedKnowledgeBases = useMemo(() => {
+    const groups = new Map<
+      string,
+      { ownerName: string; bases: KnowledgeBase[] }
+    >();
+    for (const knowledgeBase of filteredKnowledgeBases) {
+      // Group by immutable owner id so two accounts with the same display name
+      // remain separate in the agent binding picker.
+      const group = groups.get(knowledgeBase.owner_id) ?? {
+        ownerName: knowledgeBase.owner_name,
+        bases: [],
+      };
+      group.bases.push(knowledgeBase);
+      groups.set(knowledgeBase.owner_id, group);
+    }
+    return Array.from(groups.entries())
+      .sort(([, leftGroup], [, rightGroup]) =>
+        leftGroup.ownerName.localeCompare(rightGroup.ownerName),
+      )
+      .map(([ownerId, group]) => ({
+        ownerId,
+        ownerName: group.ownerName,
+        bases: [...group.bases].sort((leftBase, rightBase) =>
+          leftBase.name.localeCompare(rightBase.name),
+        ),
+      }));
+  }, [filteredKnowledgeBases]);
 
   function toggleKnowledgeBase(id: string) {
     onFormChange((current) => {
@@ -347,6 +396,12 @@ function KnowledgeSection({
       description={text.knowledgeDescription}
       collapsible
     >
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={text.knowledgeSearchPlaceholder}
+        className="h-9 rounded-md"
+      />
       {knowledgeBasesLoading ? (
         <div className="text-muted-foreground flex items-center gap-2 text-sm">
           <Loader2Icon className="size-4 animate-spin" />
@@ -360,48 +415,65 @@ function KnowledgeSection({
         </p>
       ) : knowledgeBases.length === 0 ? (
         <p className="text-muted-foreground text-sm">{text.noKnowledgeBases}</p>
+      ) : filteredKnowledgeBases.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {text.noKnowledgeSearchResults}
+        </p>
       ) : (
-        <div className="grid gap-3">
-          {knowledgeBases.map((knowledgeBase) => {
-            const selected = selectedIds.has(knowledgeBase.id);
-            return (
-              <button
-                key={knowledgeBase.id}
-                type="button"
-                role="checkbox"
-                aria-checked={selected}
-                onClick={() => toggleKnowledgeBase(knowledgeBase.id)}
-                className={cn(
-                  "flex items-start gap-3 rounded-3xl border px-4 py-3 text-left transition-colors",
-                  selected
-                    ? "border-primary/50 bg-primary/5"
-                    : "border-border/70 bg-background/70 hover:bg-muted/30",
-                )}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border/70 bg-background",
-                  )}
-                >
-                  {selected && <CheckIcon className="size-3.5" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    {knowledgeBase.name}
-                  </span>
-                  <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                    {knowledgeBase.owner_name} ·{" "}
-                    {text.knowledgeDocumentCount(
-                      knowledgeBase.documents.length,
-                    )}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+        <div className="space-y-4">
+          {groupedKnowledgeBases.map((group) => (
+            <div key={group.ownerId} className="space-y-2">
+              <div className="text-muted-foreground text-xs font-medium">
+                {group.ownerName}
+              </div>
+              <div className="divide-border overflow-hidden rounded-lg border">
+                {group.bases.map((knowledgeBase) => {
+                  const selected = selectedIds.has(knowledgeBase.id);
+                  const summary = summarizeKnowledgeBase(knowledgeBase);
+                  return (
+                    <button
+                      key={knowledgeBase.id}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={selected}
+                      onClick={() => toggleKnowledgeBase(knowledgeBase.id)}
+                      className={cn(
+                        "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                        selected
+                          ? "bg-primary/5"
+                          : "bg-background hover:bg-muted/30",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background",
+                        )}
+                      >
+                        {selected && <CheckIcon className="size-3.5" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {knowledgeBase.name}
+                        </span>
+                        <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                          {text.knowledgeDocumentCount(summary.total)} ·{" "}
+                          {text.knowledgeReadyCount(summary.ready)}
+                        </span>
+                      </span>
+                      {summary.error > 0 ? (
+                        <Badge variant="destructive">
+                          {text.knowledgeErrorCount(summary.error)}
+                        </Badge>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1651,7 +1723,7 @@ type SelectedMCPProfile = {
 
 function mcpProfileRef(profile: MCPProfile) {
   const sourcePath = profile.source_path?.trim();
-  return sourcePath || null;
+  return sourcePath !== undefined && sourcePath.length > 0 ? sourcePath : null;
 }
 
 function isProfileReachable(
