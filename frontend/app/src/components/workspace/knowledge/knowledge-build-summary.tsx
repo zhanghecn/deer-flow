@@ -1,4 +1,9 @@
-import { AlertCircleIcon, CheckCircle2Icon, ClockIcon, LoaderIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  CheckCircle2Icon,
+  ClockIcon,
+  LoaderIcon,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -117,6 +122,26 @@ export function KnowledgeBaseBuildSummary({
     (summary.error > 0
       ? t.knowledge.buildSummaryNeedsAttention
       : t.knowledge.buildSummaryReady);
+
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "border-border bg-background flex min-w-0 items-center gap-2 rounded-md border px-2 py-1.5",
+          className,
+        )}
+      >
+        <Icon className={cn("size-3.5 shrink-0", tone.className)} />
+        <div className="min-w-0 text-xs font-medium">
+          {t.knowledge.buildSummaryTitle}
+        </div>
+        <Progress value={summary.progress} className="h-1 min-w-16 flex-1" />
+        <Badge variant={tone.variant} className="h-5 px-1.5 text-[11px]">
+          {t.knowledge.buildSummaryProgress(summary.progress)}
+        </Badge>
+      </div>
+    );
+  }
 
   return (
     <div

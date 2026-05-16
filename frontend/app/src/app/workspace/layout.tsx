@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { useNavigate, Outlet } from "react-router-dom";
+import { useLocation, useNavigate, Outlet } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { AuthLoadingScreen } from "@/components/auth/auth-loading-screen";
@@ -14,9 +15,11 @@ const queryClient = new QueryClient();
 
 export default function WorkspaceLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { authenticated, ready } = useAuth();
   const [settings, setSettings] = useLocalSettings();
   const [open, setOpen] = useState(false); // SSR default: open (matches server render)
+  const compactSidebar = location.pathname.includes("/knowledge");
 
   useLayoutEffect(() => {
     // Runs synchronously before first paint on the client — no visual flash
@@ -50,6 +53,13 @@ export default function WorkspaceLayout() {
             className="h-screen"
             open={open}
             onOpenChange={handleOpenChange}
+            // Knowledge workspaces need more horizontal room for graph canvases
+            // and source panes, while the regular chat shell keeps its width.
+            style={
+              compactSidebar
+                ? ({ "--sidebar-width": "16rem" } as CSSProperties)
+                : undefined
+            }
           >
             <WorkspaceSidebar />
             <SidebarInset className="min-w-0">

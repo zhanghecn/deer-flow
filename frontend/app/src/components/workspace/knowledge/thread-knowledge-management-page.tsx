@@ -132,8 +132,7 @@ type KnowledgeClearTarget = {
   baseCount: number;
 };
 
-const panelLabelClassName =
-  "text-muted-foreground text-xs font-medium";
+const panelLabelClassName = "text-muted-foreground text-xs font-medium";
 
 // URL query params are a navigation source of truth. During a base/document
 // jump, React effects still see the previous selected state for one render, so
@@ -333,9 +332,15 @@ const GRAPH_COMMUNITY_COLORS = [
   "#fbbf24",
 ];
 
-const GRAPH_STRUCTURAL_IDS = new Set(["index", "overview", "log", "schema", "purpose"]);
-const GRAPH_BASE_NODE_SIZE = 8;
-const GRAPH_MAX_NODE_SIZE = 28;
+const GRAPH_STRUCTURAL_IDS = new Set([
+  "index",
+  "overview",
+  "log",
+  "schema",
+  "purpose",
+]);
+const GRAPH_BASE_NODE_SIZE = 4;
+const GRAPH_MAX_NODE_SIZE = 16;
 
 type KnowledgeGraphColorMode = "type" | "community";
 
@@ -362,14 +367,24 @@ function graphNodeSize(linkCount: number, maxLinks: number) {
     return GRAPH_BASE_NODE_SIZE;
   }
   const ratio = Math.max(0, linkCount) / maxLinks;
-  return GRAPH_BASE_NODE_SIZE + Math.sqrt(ratio) * (GRAPH_MAX_NODE_SIZE - GRAPH_BASE_NODE_SIZE);
+  return (
+    GRAPH_BASE_NODE_SIZE +
+    Math.sqrt(ratio) * (GRAPH_MAX_NODE_SIZE - GRAPH_BASE_NODE_SIZE)
+  );
 }
 
 function mixGraphColor(color1: string, color2: string, ratio: number) {
-  const read = (color: string, start: number) => Number.parseInt(color.slice(start, start + 2), 16);
-  const r = Math.round(read(color1, 1) + (read(color2, 1) - read(color1, 1)) * ratio);
-  const g = Math.round(read(color1, 3) + (read(color2, 3) - read(color1, 3)) * ratio);
-  const b = Math.round(read(color1, 5) + (read(color2, 5) - read(color1, 5)) * ratio);
+  const read = (color: string, start: number) =>
+    Number.parseInt(color.slice(start, start + 2), 16);
+  const r = Math.round(
+    read(color1, 1) + (read(color2, 1) - read(color1, 1)) * ratio,
+  );
+  const g = Math.round(
+    read(color1, 3) + (read(color2, 3) - read(color1, 3)) * ratio,
+  );
+  const b = Math.round(
+    read(color1, 5) + (read(color2, 5) - read(color1, 5)) * ratio,
+  );
   return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
@@ -418,7 +433,8 @@ function filterKnowledgeGraph(
   const nodes = graph.nodes.filter((node) => !hiddenNodeIds.has(node.id));
   const visibleNodeIds = new Set(nodes.map((node) => node.id));
   const edges = graph.edges.filter(
-    (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
+    (edge) =>
+      visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
   );
   return { nodes, edges, hiddenNodeIds };
 }
@@ -451,7 +467,7 @@ function WorkspaceFileTree({
           <button
             type="button"
             className={cn(
-              "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+              "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors",
               selectedPath === node.path
                 ? "bg-primary/10 text-foreground"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -497,16 +513,18 @@ function KnowledgeSourceRail({
   t: KnowledgeI18n;
 }) {
   return (
-    <aside className="border-border flex min-h-[320px] min-w-0 flex-col border-t bg-background lg:min-h-[520px] lg:w-[320px] lg:border-t-0 lg:border-l">
-      <div className="border-border flex h-12 items-center justify-between border-b px-4">
+    <aside className="border-border bg-background flex min-h-0 min-w-0 flex-col border-t lg:w-[220px] lg:border-t-0 lg:border-l xl:w-[232px]">
+      <div className="border-border flex h-9 shrink-0 items-center justify-between border-b px-3">
         <div className="min-w-0">
-          <div className="text-sm font-medium">{t.knowledge.sourceDocuments}</div>
-          <div className="text-muted-foreground text-xs">
+          <div className="text-xs font-medium">
+            {t.knowledge.sourceDocuments}
+          </div>
+          <div className="text-muted-foreground text-[11px]">
             {t.knowledge.documentCount(documents.length)}
           </div>
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="divide-border/70 divide-y">
           {documents.length === 0 ? (
             <div className="text-muted-foreground p-4 text-sm">
@@ -520,21 +538,21 @@ function KnowledgeSourceRail({
                   key={document.id}
                   type="button"
                   className={cn(
-                    "hover:bg-muted/40 flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left transition-colors",
+                    "hover:bg-muted/40 flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left transition-colors",
                     selectedDocumentId === document.id && "bg-primary/5",
                   )}
                   onClick={() => onOpenDocument(document)}
                 >
-                  <FileTextIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                  <FileTextIcon className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <div className="line-clamp-2 text-sm leading-5 font-medium break-words">
+                    <div className="line-clamp-2 text-xs leading-4 font-medium break-words">
                       {document.display_name}
                     </div>
-                    <div className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-5">
+                    <div className="text-muted-foreground mt-0.5 line-clamp-1 text-[11px] leading-4">
                       {document.doc_description ??
                         `${document.file_kind} · ${visibilityLabel(document.visibility, t)}`}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
+                    <div className="mt-1.5 flex flex-wrap gap-1">
                       <Badge variant={statusTone(status)}>
                         {statusLabel(status, t)}
                       </Badge>
@@ -546,12 +564,12 @@ function KnowledgeSourceRail({
                     </div>
                     {status !== "ready" ? (
                       <Progress
-                        className="mt-3 h-1.5"
+                        className="mt-2 h-1"
                         value={getKnowledgeDocumentProgress(document)}
                       />
                     ) : null}
                   </div>
-                  <span className="text-muted-foreground shrink-0 text-xs">
+                  <span className="text-muted-foreground hidden shrink-0 text-[11px] xl:block">
                     {t.knowledge.openSourcePreview}
                   </span>
                 </button>
@@ -559,7 +577,7 @@ function KnowledgeSourceRail({
             })
           )}
         </div>
-      </ScrollArea>
+      </div>
     </aside>
   );
 }
@@ -581,10 +599,10 @@ function KnowledgeWorkspaceReader({
   const body = content ?? "";
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <div className="border-border flex h-12 items-center gap-2 border-b px-4">
+    <div className="bg-background flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="border-border flex h-9 shrink-0 items-center gap-2 border-b px-3">
         <BookOpenIcon className="text-muted-foreground size-4 shrink-0" />
-        <div className="min-w-0 truncate text-sm font-medium">
+        <div className="min-w-0 truncate text-xs font-medium">
           {path ?? t.knowledge.workspaceDefaultTitle}
         </div>
       </div>
@@ -602,13 +620,13 @@ function KnowledgeWorkspaceReader({
           </div>
         ) : isMarkdown ? (
           <MessageResponse
-            className="mx-auto max-w-4xl px-6 py-5 text-sm leading-7 [&_a]:text-primary [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:mt-0 [&_h1]:text-2xl [&_h2]:mt-8 [&_h2]:text-xl [&_h3]:mt-6 [&_h3]:text-base [&_li]:my-1 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted/40 [&_pre]:p-3"
+            className="[&_a]:text-primary [&_code]:bg-muted [&_pre]:bg-muted/40 mx-auto max-w-5xl px-5 py-4 text-[13px] leading-6 [&_code]:rounded [&_code]:px-1 [&_h1]:mt-0 [&_h1]:text-xl [&_h2]:mt-6 [&_h2]:text-lg [&_h3]:mt-5 [&_h3]:text-base [&_li]:my-0.5 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3"
             {...streamdownPlugins}
           >
             {body}
           </MessageResponse>
         ) : (
-          <pre className="text-foreground whitespace-pre-wrap break-words p-5 text-sm leading-6">
+          <pre className="text-foreground p-4 text-[13px] leading-6 break-words whitespace-pre-wrap">
             {body}
           </pre>
         )}
@@ -645,19 +663,21 @@ function KnowledgeWikiWorkspace({
   t: KnowledgeI18n;
 }) {
   return (
-    <div className="grid min-h-[640px] min-w-0 flex-1 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
-      <aside className="border-border flex min-h-[260px] min-w-0 flex-col border-b bg-muted/20 lg:min-h-[520px] lg:border-r lg:border-b-0">
-        <div className="border-border flex h-12 items-center justify-between border-b px-4">
+    <div className="grid h-full min-h-0 min-w-0 flex-1 lg:grid-cols-[180px_minmax(0,1fr)_220px] xl:grid-cols-[196px_minmax(0,1fr)_232px]">
+      <aside className="border-border bg-muted/20 flex min-h-0 min-w-0 flex-col border-b lg:border-r lg:border-b-0">
+        <div className="border-border flex h-9 shrink-0 items-center justify-between border-b px-3">
           <div className="min-w-0">
-            <div className="text-sm font-medium">{t.knowledge.workspaceFiles}</div>
+            <div className="text-xs font-medium">
+              {t.knowledge.workspaceFiles}
+            </div>
             {selectedWorkspacePath ? (
-              <div className="text-muted-foreground truncate text-xs">
+              <div className="text-muted-foreground truncate text-[11px]">
                 {workspaceFileLabel(selectedWorkspacePath)}
               </div>
             ) : null}
           </div>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
           <div className="p-2">
             {workspaceTreeLoading ? (
               <div className="text-muted-foreground p-3 text-sm">
@@ -679,7 +699,7 @@ function KnowledgeWikiWorkspace({
               />
             )}
           </div>
-        </ScrollArea>
+        </div>
       </aside>
 
       <KnowledgeWorkspaceReader
@@ -715,7 +735,10 @@ function KnowledgeGraphLoader({
   const loadGraph = useLoadGraph();
 
   useEffect(() => {
-    const dataKey = `${nodes.map((node) => node.id).sort().join(",")}|${edges.length}`;
+    const dataKey = `${nodes
+      .map((node) => node.id)
+      .sort()
+      .join(",")}|${edges.length}`;
     const needsLayout = dataKey !== knowledgeGraphLastLayoutKey;
     const sigmaGraph = new Graph();
     const maxLinks = Math.max(1, ...nodes.map((node) => node.link_count));
@@ -740,7 +763,10 @@ function KnowledgeGraphLoader({
 
     const maxWeight = Math.max(1, ...edges.map((edge) => edge.weight));
     for (const edge of edges) {
-      if (!sigmaGraph.hasNode(edge.source) || !sigmaGraph.hasNode(edge.target)) {
+      if (
+        !sigmaGraph.hasNode(edge.source) ||
+        !sigmaGraph.hasNode(edge.target)
+      ) {
         continue;
       }
       const edgeKey = `${edge.source}->${edge.target}`;
@@ -900,7 +926,7 @@ function KnowledgeGraphZoomControls() {
         type="button"
         variant="outline"
         size="icon"
-        className="h-8 w-8 bg-background/85 backdrop-blur"
+        className="bg-background/85 h-8 w-8 backdrop-blur"
         onClick={() => sigma.getCamera().animatedZoom({ duration: 200 })}
       >
         <ZoomInIcon className="size-4" />
@@ -909,7 +935,7 @@ function KnowledgeGraphZoomControls() {
         type="button"
         variant="outline"
         size="icon"
-        className="h-8 w-8 bg-background/85 backdrop-blur"
+        className="bg-background/85 h-8 w-8 backdrop-blur"
         onClick={() => sigma.getCamera().animatedUnzoom({ duration: 200 })}
       >
         <ZoomOutIcon className="size-4" />
@@ -918,7 +944,7 @@ function KnowledgeGraphZoomControls() {
         type="button"
         variant="outline"
         size="icon"
-        className="h-8 w-8 bg-background/85 backdrop-blur"
+        className="bg-background/85 h-8 w-8 backdrop-blur"
         onClick={() => sigma.getCamera().animatedReset({ duration: 300 })}
       >
         <MaximizeIcon className="size-4" />
@@ -944,9 +970,17 @@ function KnowledgeGraphMap({
   const [colorMode, setColorMode] = useState<KnowledgeGraphColorMode>("type");
   const [showFilters, setShowFilters] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
-  const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
-  const [dismissedInsightKeys, setDismissedInsightKeys] = useState<Set<string>>(new Set());
-  const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(
+    new Set(),
+  );
+  const [dismissedInsightKeys, setDismissedInsightKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const [nodeMenu, setNodeMenu] = useState<{
+    nodeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [filters, setFilters] = useState<KnowledgeGraphFilterState>(() =>
     defaultKnowledgeGraphFilters(),
   );
@@ -968,12 +1002,14 @@ function KnowledgeGraphMap({
     }
     return counts;
   }, [graph]);
-  const visibleInsightNodes = graph?.insights?.isolated_nodes.filter(
-    (node) => !dismissedInsightKeys.has(`isolated:${node.id}`),
-  ) ?? [];
-  const visibleSparseCommunities = graph?.insights?.sparse_communities.filter(
-    (community) => !dismissedInsightKeys.has(`sparse:${community.id}`),
-  ) ?? [];
+  const visibleInsightNodes =
+    graph?.insights?.isolated_nodes.filter(
+      (node) => !dismissedInsightKeys.has(`isolated:${node.id}`),
+    ) ?? [];
+  const visibleSparseCommunities =
+    graph?.insights?.sparse_communities.filter(
+      (community) => !dismissedInsightKeys.has(`sparse:${community.id}`),
+    ) ?? [];
   const filtersActive = hasActiveKnowledgeGraphFilters(filters);
 
   const resetFilters = useCallback(() => {
@@ -992,7 +1028,7 @@ function KnowledgeGraphMap({
 
   if (isLoading) {
     return (
-      <div className="text-muted-foreground flex min-h-[640px] items-center justify-center text-sm">
+      <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center text-sm">
         <LoaderIcon className="mr-2 size-4 animate-spin" />
         {t.knowledge.loadingGraph}
       </div>
@@ -1005,7 +1041,7 @@ function KnowledgeGraphMap({
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className="text-muted-foreground flex min-h-[640px] items-center justify-center text-sm">
+      <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center text-sm">
         {t.knowledge.emptyGraph}
       </div>
     );
@@ -1018,68 +1054,83 @@ function KnowledgeGraphMap({
   const visibleEdges = filteredGraph?.edges ?? [];
 
   return (
-    <div className="grid min-h-[640px] min-w-0 flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="flex min-h-[520px] min-w-0 flex-col bg-slate-50 dark:bg-slate-950">
-        <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b bg-background px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-            <NetworkIcon className="size-4 text-muted-foreground" />
+    <div className="grid h-full min-h-0 min-w-0 flex-1 lg:grid-cols-[minmax(0,1fr)_220px] xl:grid-cols-[minmax(0,1fr)_232px]">
+      <div className="flex min-h-0 min-w-0 flex-col bg-slate-50 dark:bg-slate-950">
+        <div className="border-border bg-background flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b px-2 py-1.5">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+            <NetworkIcon className="text-muted-foreground size-4" />
             <span>{t.knowledge.knowledgeGraphTab}</span>
-            <Badge variant="outline">
-              {t.knowledge.graphNodeVisibleCount(visibleNodes.length, graph.nodes.length)}
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {t.knowledge.graphNodeVisibleCount(
+                visibleNodes.length,
+                graph.nodes.length,
+              )}
             </Badge>
-            <Badge variant="outline">
-              {t.knowledge.graphRenderedEdges(visibleEdges.length, graph.edges.length)}
+            <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+              {t.knowledge.graphRenderedEdges(
+                visibleEdges.length,
+                graph.edges.length,
+              )}
             </Badge>
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-0.5">
             <Button
               type="button"
               variant={showFilters ? "secondary" : "ghost"}
               size="sm"
-              className="h-8 gap-1 rounded-md text-xs"
+              className="h-7 gap-1 rounded-md px-2 text-xs"
               onClick={() => setShowFilters((value) => !value)}
             >
               <FilterIcon className="size-3.5" />
-              {t.knowledge.graphFilter}
+              <span className="hidden 2xl:inline">
+                {t.knowledge.graphFilter}
+              </span>
             </Button>
             {filtersActive ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 gap-1 rounded-md text-xs"
+                className="h-7 gap-1 rounded-md px-2 text-xs"
                 onClick={resetFilters}
               >
                 <RotateCcwIcon className="size-3.5" />
-                {t.knowledge.graphReset}
+                <span className="hidden 2xl:inline">
+                  {t.knowledge.graphReset}
+                </span>
               </Button>
             ) : null}
             <Button
               type="button"
               variant={colorMode === "type" ? "secondary" : "ghost"}
               size="sm"
-              className="h-8 gap-1 rounded-md text-xs"
+              className="h-7 gap-1 rounded-md px-2 text-xs"
               onClick={() => setColorMode("type")}
             >
               <TagIcon className="size-3.5" />
-              {t.knowledge.graphTypeMode}
+              <span className="hidden 2xl:inline">
+                {t.knowledge.graphTypeMode}
+              </span>
             </Button>
             <Button
               type="button"
               variant={colorMode === "community" ? "secondary" : "ghost"}
               size="sm"
-              className="h-8 gap-1 rounded-md text-xs"
+              className="h-7 gap-1 rounded-md px-2 text-xs"
               onClick={() => setColorMode("community")}
             >
               <LayersIcon className="size-3.5" />
-              {t.knowledge.graphCommunityMode}
+              <span className="hidden 2xl:inline">
+                {t.knowledge.graphCommunityMode}
+              </span>
             </Button>
-            {(visibleInsightNodes.length > 0 || visibleSparseCommunities.length > 0) ? (
+            {visibleInsightNodes.length > 0 ||
+            visibleSparseCommunities.length > 0 ? (
               <Button
                 type="button"
                 variant={showInsights ? "secondary" : "ghost"}
                 size="sm"
-                className="h-8 gap-1 rounded-md text-xs"
+                className="h-7 gap-1 rounded-md px-2 text-xs"
                 onClick={() => {
                   setShowInsights((value) => {
                     if (value) {
@@ -1090,14 +1141,16 @@ function KnowledgeGraphMap({
                 }}
               >
                 <LightbulbIcon className="size-3.5" />
-                {t.knowledge.graphInsights}
+                <span className="hidden 2xl:inline">
+                  {t.knowledge.graphInsights}
+                </span>
               </Button>
             ) : null}
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-md"
+              className="h-7 w-7 rounded-md"
               onClick={() => {
                 knowledgeGraphLastLayoutKey = "";
                 knowledgeGraphPositionCache.clear();
@@ -1111,17 +1164,21 @@ function KnowledgeGraphMap({
 
         <div
           ref={graphContainerRef}
-          className="relative min-h-[520px] flex-1 overflow-hidden"
+          className="relative min-h-0 flex-1 overflow-hidden"
           onClick={() => setNodeMenu(null)}
           onContextMenu={(event) => event.preventDefault()}
         >
           {visibleNodes.length === 0 ? (
-            <div className="text-muted-foreground flex h-full min-h-[520px] items-center justify-center text-sm">
+            <div className="text-muted-foreground flex h-full min-h-0 items-center justify-center text-sm">
               {t.knowledge.graphNoVisibleNodes}
             </div>
           ) : (
             <SigmaContainer
-              style={{ width: "100%", height: "100%", minHeight: "520px", background: "transparent" }}
+              style={{
+                width: "100%",
+                height: "100%",
+                background: "transparent",
+              }}
               settings={{
                 defaultEdgeColor: "#cbd5e1",
                 defaultNodeColor: "#94a3b8",
@@ -1136,36 +1193,46 @@ function KnowledgeGraphMap({
                     result.color = "#1e293b";
                     result.forceLabel = true;
                     result.label = `${t.knowledge.graphRelevance}: ${weight.toFixed(1)}`;
-                    result.size = Math.max(2, Number(attributes.size ?? 1) * 1.5);
+                    result.size = Math.max(
+                      2,
+                      Number(attributes.size ?? 1) * 1.5,
+                    );
                   }
                   return result;
                 },
                 labelColor: { color: "#1e293b" },
-                labelDensity: 0.4,
-                labelRenderedSizeThreshold: 6,
-                labelSize: 13,
+                labelDensity: 0.18,
+                labelRenderedSizeThreshold: 9,
+                labelSize: 11,
                 labelWeight: "bold",
                 nodeReducer: (_node, attributes) => {
                   const result = { ...attributes };
                   if (attributes.insightHighlight) {
                     result.forceLabel = true;
-                    result.size = Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 1.5;
+                    result.size =
+                      Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 1.5;
                     result.zIndex = 10;
                   }
                   if (attributes.hovering) {
                     result.forceLabel = true;
-                    result.size = Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 1.4;
+                    result.size =
+                      Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 1.4;
                     result.zIndex = 10;
                   }
                   if (attributes.dimmed) {
-                    result.color = mixGraphColor(String(attributes.color ?? "#94a3b8"), "#e2e8f0", 0.75);
+                    result.color = mixGraphColor(
+                      String(attributes.color ?? "#94a3b8"),
+                      "#e2e8f0",
+                      0.75,
+                    );
                     result.label = "";
-                    result.size = Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 0.6;
+                    result.size =
+                      Number(attributes.size ?? GRAPH_BASE_NODE_SIZE) * 0.6;
                   }
                   return result;
                 },
                 renderEdgeLabels: true,
-                stagePadding: 30,
+                stagePadding: 42,
               }}
             >
               <KnowledgeGraphLoader
@@ -1180,7 +1247,8 @@ function KnowledgeGraphMap({
                     setNodeMenu(null);
                     return;
                   }
-                  const rect = graphContainerRef.current?.getBoundingClientRect();
+                  const rect =
+                    graphContainerRef.current?.getBoundingClientRect();
                   setNodeMenu({
                     nodeId,
                     x: rect ? point.x - rect.left : point.x,
@@ -1188,13 +1256,15 @@ function KnowledgeGraphMap({
                   });
                 }}
               />
-              <KnowledgeGraphHighlightManager highlightedNodes={highlightedNodes} />
+              <KnowledgeGraphHighlightManager
+                highlightedNodes={highlightedNodes}
+              />
               <KnowledgeGraphZoomControls />
             </SigmaContainer>
           )}
 
           {showFilters ? (
-            <div className="border-border absolute top-3 left-3 w-72 rounded-md border bg-background/95 p-3 text-xs shadow-lg backdrop-blur">
+            <div className="border-border bg-background/95 absolute top-3 left-3 w-72 rounded-md border p-3 text-xs shadow-lg backdrop-blur">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-medium">
                   <FilterIcon className="size-3.5" />
@@ -1238,7 +1308,7 @@ function KnowledgeGraphMap({
                   <span>{t.knowledge.graphHideIsolated}</span>
                 </label>
                 <div className="space-y-1.5">
-                  <div className="font-medium text-muted-foreground">
+                  <div className="text-muted-foreground font-medium">
                     {t.knowledge.graphMaxLinks}
                   </div>
                   <Input
@@ -1261,31 +1331,38 @@ function KnowledgeGraphMap({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="font-medium text-muted-foreground">
+                  <div className="text-muted-foreground font-medium">
                     {t.knowledge.graphNodeTypes}
                   </div>
                   <div className="grid grid-cols-2 gap-1">
-                    {Array.from(nodeTypeCounts.entries()).map(([type, count]) => (
-                      <label key={type} className="flex min-w-0 items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={!filters.hiddenTypes.has(type)}
-                          onChange={(event) =>
-                            setFilters((current) => {
-                              const hiddenTypes = new Set(current.hiddenTypes);
-                              if (event.target.checked) {
-                                hiddenTypes.delete(type);
-                              } else {
-                                hiddenTypes.add(type);
-                              }
-                              return { ...current, hiddenTypes };
-                            })
-                          }
-                        />
-                        <span className="truncate">{type}</span>
-                        <span className="text-muted-foreground">{count}</span>
-                      </label>
-                    ))}
+                    {Array.from(nodeTypeCounts.entries()).map(
+                      ([type, count]) => (
+                        <label
+                          key={type}
+                          className="flex min-w-0 items-center gap-1.5"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!filters.hiddenTypes.has(type)}
+                            onChange={(event) =>
+                              setFilters((current) => {
+                                const hiddenTypes = new Set(
+                                  current.hiddenTypes,
+                                );
+                                if (event.target.checked) {
+                                  hiddenTypes.delete(type);
+                                } else {
+                                  hiddenTypes.add(type);
+                                }
+                                return { ...current, hiddenTypes };
+                              })
+                            }
+                          />
+                          <span className="truncate">{type}</span>
+                          <span className="text-muted-foreground">{count}</span>
+                        </label>
+                      ),
+                    )}
                   </div>
                 </div>
               </div>
@@ -1294,7 +1371,7 @@ function KnowledgeGraphMap({
 
           {nodeMenu && contextNode ? (
             <div
-              className="border-border absolute z-20 w-52 rounded-md border bg-background py-1 text-xs shadow-lg"
+              className="border-border bg-background absolute z-20 w-52 rounded-md border py-1 text-xs shadow-lg"
               style={{ left: nodeMenu.x, top: nodeMenu.y }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -1310,7 +1387,10 @@ function KnowledgeGraphMap({
                 onClick={() => {
                   setFilters((current) => ({
                     ...current,
-                    hiddenNodeIds: new Set([...current.hiddenNodeIds, contextNode.id]),
+                    hiddenNodeIds: new Set([
+                      ...current.hiddenNodeIds,
+                      contextNode.id,
+                    ]),
                   }));
                   setNodeMenu(null);
                 }}
@@ -1321,7 +1401,7 @@ function KnowledgeGraphMap({
             </div>
           ) : null}
 
-          <div className="border-border absolute bottom-3 left-3 max-w-[280px] rounded-md border bg-background/90 px-3 py-2 text-xs shadow-sm backdrop-blur">
+          <div className="border-border bg-background/90 absolute bottom-3 left-3 max-w-[240px] rounded-md border px-3 py-2 text-xs shadow-sm backdrop-blur">
             <div className="mb-2 flex items-center justify-between gap-3 font-medium">
               <span>
                 {colorMode === "type"
@@ -1369,7 +1449,9 @@ function KnowledgeGraphMap({
                       >
                         <span
                           className="size-3 shrink-0 rounded-full"
-                          style={{ backgroundColor: graphNodeColorByType(type) }}
+                          style={{
+                            backgroundColor: graphNodeColorByType(type),
+                          }}
                         />
                         <span className="min-w-0 flex-1 truncate">{type}</span>
                         <span className="text-muted-foreground">{count}</span>
@@ -1383,7 +1465,9 @@ function KnowledgeGraphMap({
                     >
                       <span
                         className="size-3 shrink-0 rounded-full"
-                        style={{ backgroundColor: graphCommunityColor(community.id) }}
+                        style={{
+                          backgroundColor: graphCommunityColor(community.id),
+                        }}
                       />
                       <span className="min-w-0 flex-1 truncate">
                         {community.top_nodes[0] ??
@@ -1399,21 +1483,21 @@ function KnowledgeGraphMap({
         </div>
       </div>
 
-      <aside className="border-border flex min-h-[320px] min-w-0 flex-col border-t bg-background lg:min-h-[520px] lg:border-t-0 lg:border-l">
-        <div className="border-border border-b p-4">
-          <div className="flex items-center gap-2 text-sm font-medium">
+      <aside className="border-border bg-background flex min-h-0 min-w-0 flex-col border-t lg:border-t-0 lg:border-l">
+        <div className="border-border shrink-0 border-b p-3">
+          <div className="flex items-center gap-2 text-xs font-medium">
             <NetworkIcon className="size-4" />
             {t.knowledge.graphSelectedNode}
           </div>
           {selectedNode ? (
-            <div className="mt-3 min-w-0">
-              <div className="line-clamp-2 text-sm font-semibold">
+            <div className="mt-2 min-w-0">
+              <div className="line-clamp-2 text-xs leading-4 font-semibold">
                 {selectedNode.label}
               </div>
-              <div className="text-muted-foreground mt-2 break-all text-xs leading-5">
+              <div className="text-muted-foreground mt-1 text-[11px] leading-4 break-all">
                 {selectedNode.path}
               </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="mt-2 flex flex-wrap gap-1">
                 <Badge variant="outline">{selectedNode.type}</Badge>
                 <Badge variant="outline">
                   {t.knowledge.graphCommunity(selectedNode.community)}
@@ -1425,7 +1509,7 @@ function KnowledgeGraphMap({
               <Button
                 type="button"
                 size="sm"
-                className="mt-4 w-full rounded-md"
+                className="mt-3 h-8 w-full rounded-md text-xs"
                 onClick={() => onOpenWikiPath(selectedNode.path)}
               >
                 <BookOpenIcon className="size-4" />
@@ -1439,12 +1523,12 @@ function KnowledgeGraphMap({
           )}
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-5 p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+          <div className="space-y-4 p-3">
             {showInsights ? (
               <div>
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-medium">
                     <LightbulbIcon className="size-4 text-amber-500" />
                     {t.knowledge.graphInsights}
                   </div>
@@ -1461,20 +1545,23 @@ function KnowledgeGraphMap({
                     <XIcon className="size-4" />
                   </Button>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {visibleInsightNodes.map((node) => {
                     const isActive =
-                      highlightedNodes.size === 1 && highlightedNodes.has(node.id);
+                      highlightedNodes.size === 1 &&
+                      highlightedNodes.has(node.id);
                     return (
                       <button
                         key={node.id}
                         type="button"
                         className={cn(
-                          "border-border hover:bg-muted/50 w-full rounded-md border p-3 text-left text-xs transition-colors",
+                          "border-border hover:bg-muted/50 w-full rounded-md border p-2 text-left text-xs transition-colors",
                           isActive && "border-amber-500/50 bg-amber-500/10",
                         )}
                         onClick={() =>
-                          setHighlightedNodes(isActive ? new Set() : new Set([node.id]))
+                          setHighlightedNodes(
+                            isActive ? new Set() : new Set([node.id]),
+                          )
                         }
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -1485,8 +1572,9 @@ function KnowledgeGraphMap({
                             className="text-muted-foreground hover:text-foreground"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setDismissedInsightKeys((current) =>
-                                new Set([...current, `isolated:${node.id}`]),
+                              setDismissedInsightKeys(
+                                (current) =>
+                                  new Set([...current, `isolated:${node.id}`]),
                               );
                             }}
                           >
@@ -1513,10 +1601,12 @@ function KnowledgeGraphMap({
                         key={community.id}
                         type="button"
                         className={cn(
-                          "border-border hover:bg-muted/50 w-full rounded-md border p-3 text-left text-xs transition-colors",
+                          "border-border hover:bg-muted/50 w-full rounded-md border p-2 text-left text-xs transition-colors",
                           isActive && "border-amber-500/50 bg-amber-500/10",
                         )}
-                        onClick={() => setHighlightedNodes(isActive ? new Set() : ids)}
+                        onClick={() =>
+                          setHighlightedNodes(isActive ? new Set() : ids)
+                        }
                       >
                         <div className="flex items-start justify-between gap-2">
                           <span className="font-medium">
@@ -1531,8 +1621,12 @@ function KnowledgeGraphMap({
                             className="text-muted-foreground hover:text-foreground"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setDismissedInsightKeys((current) =>
-                                new Set([...current, `sparse:${community.id}`]),
+                              setDismissedInsightKeys(
+                                (current) =>
+                                  new Set([
+                                    ...current,
+                                    `sparse:${community.id}`,
+                                  ]),
                               );
                             }}
                           >
@@ -1550,7 +1644,7 @@ function KnowledgeGraphMap({
                   })}
                   {visibleInsightNodes.length === 0 &&
                   visibleSparseCommunities.length === 0 ? (
-                    <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
+                    <div className="text-muted-foreground rounded-md border border-dashed p-2 text-xs">
                       {t.knowledge.graphNoInsights}
                     </div>
                   ) : null}
@@ -1559,28 +1653,32 @@ function KnowledgeGraphMap({
             ) : (
               <>
                 <div>
-                  <div className="flex items-center gap-2 text-sm font-medium">
+                  <div className="flex items-center gap-2 text-xs font-medium">
                     <LayersIcon className="size-4" />
                     {t.knowledge.graphCommunities}
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 space-y-1.5">
                     {(graph.communities ?? []).map((community) => (
                       <button
                         key={community.id}
                         type="button"
-                        className="border-border hover:bg-muted/50 w-full rounded-md border px-3 py-2 text-left text-xs transition-colors"
+                        className="border-border hover:bg-muted/50 w-full rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
                         onClick={() =>
                           setHighlightedNodes(
                             new Set(
                               graph.nodes
-                                .filter((node) => node.community === community.id)
+                                .filter(
+                                  (node) => node.community === community.id,
+                                )
                                 .map((node) => node.id),
                             ),
                           )
                         }
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span>{t.knowledge.graphCommunity(community.id)}</span>
+                          <span>
+                            {t.knowledge.graphCommunity(community.id)}
+                          </span>
                           <span className="text-muted-foreground">
                             {t.knowledge.nodeCount(community.node_count)}
                           </span>
@@ -1594,25 +1692,40 @@ function KnowledgeGraphMap({
                 </div>
 
                 <div>
-                  <div className="flex items-center gap-2 text-sm font-medium">
+                  <div className="flex items-center gap-2 text-xs font-medium">
                     <AlertTriangleIcon className="size-4" />
                     {t.knowledge.graphInsights}
                   </div>
-                  <div className="text-muted-foreground mt-3 space-y-2 text-xs leading-5">
-                    <div>{t.knowledge.graphIsolatedNodes(graph.insights?.isolated_nodes.length ?? 0)}</div>
-                    <div>{t.knowledge.graphSparseCommunities(graph.insights?.sparse_communities.length ?? 0)}</div>
-                    <div>{t.knowledge.graphRenderedEdges(visibleEdges.length, graph.edges.length)}</div>
+                  <div className="text-muted-foreground mt-2 space-y-1 text-xs leading-5">
+                    <div>
+                      {t.knowledge.graphIsolatedNodes(
+                        graph.insights?.isolated_nodes.length ?? 0,
+                      )}
+                    </div>
+                    <div>
+                      {t.knowledge.graphSparseCommunities(
+                        graph.insights?.sparse_communities.length ?? 0,
+                      )}
+                    </div>
+                    <div>
+                      {t.knowledge.graphRenderedEdges(
+                        visibleEdges.length,
+                        graph.edges.length,
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-sm font-medium">{t.knowledge.graphEdges}</div>
-                  <div className="mt-3 space-y-2">
+                  <div className="text-xs font-medium">
+                    {t.knowledge.graphEdges}
+                  </div>
+                  <div className="mt-2 space-y-1.5">
                     {visibleEdges.slice(0, 40).map((edge) => (
                       <button
                         key={`${edge.source}-${edge.target}`}
                         type="button"
-                        className="border-border hover:bg-muted/50 w-full rounded-md border px-3 py-2 text-left text-xs transition-colors"
+                        className="border-border hover:bg-muted/50 w-full rounded-md border px-2 py-1.5 text-left text-xs transition-colors"
                         onClick={() => setSelectedNodeId(edge.source)}
                       >
                         <div className="truncate">{edge.source}</div>
@@ -1626,7 +1739,7 @@ function KnowledgeGraphMap({
               </>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </aside>
     </div>
   );
@@ -1670,8 +1783,8 @@ function KnowledgeBaseWorkbench({
   t: KnowledgeI18n;
 }) {
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="border-border sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b bg-background px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="border-border bg-background sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b px-4 py-3">
         <div className="border-border inline-flex h-9 overflow-hidden rounded-md border">
           <button
             type="button"
@@ -2137,7 +2250,9 @@ export function ThreadKnowledgeManagementPage() {
     if (currentStillExists) {
       return;
     }
-    setSelectedWorkspacePath(selectDefaultKnowledgeWorkspacePath(workspaceFiles));
+    setSelectedWorkspacePath(
+      selectDefaultKnowledgeWorkspacePath(workspaceFiles),
+    );
   }, [selectedBase, selectedWorkspacePath, workspaceFiles]);
 
   const effectivePreviewFocus = useMemo<KnowledgePreviewFocus | null>(() => {
@@ -2463,23 +2578,25 @@ export function ThreadKnowledgeManagementPage() {
           setPendingUploadedBaseId(knowledgeBaseId);
         }}
       />
-      <WorkspaceHeader />
-      <WorkspaceBody>
+      <WorkspaceHeader className="h-10" />
+      <WorkspaceBody className="items-stretch">
         <div className="bg-background flex size-full min-h-0 flex-col overflow-hidden lg:flex-row">
-          <aside className="border-border bg-muted/20 flex max-h-[38svh] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b lg:max-h-none lg:w-[288px] lg:border-r lg:border-b-0">
-            <div className="border-border border-b px-4 py-4">
-              <h1 className="text-sm font-semibold">{t.knowledge.libraryTitle}</h1>
-              <p className="text-muted-foreground mt-1 line-clamp-3 text-xs leading-5">
+          <aside className="border-border bg-muted/20 flex max-h-[34svh] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b lg:max-h-none lg:w-[196px] lg:border-r lg:border-b-0 xl:w-[208px]">
+            <div className="border-border shrink-0 border-b px-3 py-2">
+              <h1 className="text-sm font-semibold">
+                {t.knowledge.libraryTitle}
+              </h1>
+              <p className="text-muted-foreground mt-0.5 line-clamp-2 text-[11px] leading-4">
                 {activeLibraryDescription}
               </p>
             </div>
 
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-6 p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+              <div className="space-y-3 p-2">
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
+                    "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors",
                     selectedOwnerGroup == null && selectedBase == null
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -2491,12 +2608,12 @@ export function ThreadKnowledgeManagementPage() {
                     setSelectedDocumentId(null);
                   }}
                 >
-                  <div className="bg-background text-foreground flex size-8 items-center justify-center rounded-md border">
+                  <div className="bg-background text-foreground flex size-7 items-center justify-center rounded-md border">
                     <HouseIcon className="size-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">{managerTitle}</div>
-                    <div className="text-muted-foreground text-xs">
+                    <div className="text-xs font-medium">{managerTitle}</div>
+                    <div className="text-muted-foreground text-[11px]">
                       {t.knowledge.baseCount(filteredKnowledgeBases.length)}
                     </div>
                   </div>
@@ -2520,7 +2637,7 @@ export function ThreadKnowledgeManagementPage() {
                       <button
                         type="button"
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
+                          "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors",
                           selectedOwnerId === group.ownerId &&
                             selectedBase == null
                             ? "bg-accent text-foreground"
@@ -2528,14 +2645,14 @@ export function ThreadKnowledgeManagementPage() {
                         )}
                         onClick={() => openOwner(group)}
                       >
-                        <div className="bg-background text-foreground flex size-8 items-center justify-center rounded-md border">
+                        <div className="bg-background text-foreground flex size-7 items-center justify-center rounded-md border">
                           <FolderIcon className="size-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold">
+                          <div className="truncate text-xs font-semibold">
                             {group.ownerName}
                           </div>
-                          <div className="text-muted-foreground text-xs">
+                          <div className="text-muted-foreground text-[11px]">
                             {t.knowledge.baseCount(group.bases.length)}
                           </div>
                         </div>
@@ -2543,7 +2660,7 @@ export function ThreadKnowledgeManagementPage() {
                       </button>
 
                       {selectedOwnerId === group.ownerId ? (
-                        <div className="border-border ml-4 min-w-0 space-y-1 border-l pr-1 pl-3">
+                        <div className="border-border ml-3 min-w-0 space-y-0.5 border-l pr-1 pl-2">
                           {group.bases.map((knowledgeBase) => {
                             const readyDocuments =
                               knowledgeBase.documents.filter(
@@ -2557,19 +2674,19 @@ export function ThreadKnowledgeManagementPage() {
                                 key={knowledgeBase.id}
                                 type="button"
                                 className={cn(
-                                  "flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors",
+                                  "flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
                                   selectedBase?.id === knowledgeBase.id
                                     ? "bg-primary/5 text-foreground"
                                     : "hover:bg-accent/50",
                                 )}
                                 onClick={() => openBase(knowledgeBase)}
                               >
-                                <FileTextIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                                <FileTextIcon className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
                                 <div className="min-w-0 flex-1">
-                                  <div className="line-clamp-2 text-sm leading-5 font-medium break-words">
+                                  <div className="line-clamp-2 text-xs leading-4 font-medium break-words">
                                     {knowledgeBase.name}
                                   </div>
-                                  <div className="text-muted-foreground line-clamp-2 text-[11px] leading-4 break-all">
+                                  <div className="text-muted-foreground line-clamp-1 text-[11px] leading-4 break-all">
                                     {knowledgeBaseContextLabel(knowledgeBase) ??
                                       t.knowledge.documentCount(
                                         knowledgeBase.documents.length,
@@ -2586,94 +2703,92 @@ export function ThreadKnowledgeManagementPage() {
                   ))
                 )}
               </div>
-            </ScrollArea>
+            </div>
           </aside>
 
           <section className="bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="border-border border-b px-4 py-4">
-              <div className="flex flex-col gap-4">
-                <div className="min-w-0">
-                  <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
-                    <button
-                      type="button"
-                      className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
-                      onClick={() => {
-                        markLocalSelectionChange();
-                        setSelectedOwnerId(null);
-                        setSelectedBaseId(null);
-                        setSelectedDocumentId(null);
-                      }}
-                    >
-                      <HouseIcon className="size-4" />
-                      <span>{managerTitle}</span>
-                    </button>
-                    {selectedOwnerGroup ? (
-                      <>
-                        <ChevronRightIcon className="size-4" />
-                        <button
-                          type="button"
-                          className="hover:text-foreground transition-colors"
-                          onClick={() => {
-                            markLocalSelectionChange();
-                            setSelectedBaseId(null);
-                            setSelectedDocumentId(null);
-                          }}
-                        >
-                          {selectedOwnerGroup.ownerName}
-                        </button>
-                      </>
-                    ) : null}
-                    {selectedBase ? (
-                      <>
-                        <ChevronRightIcon className="size-4" />
-                        <span className="text-foreground">
-                          {selectedBase.name}
-                        </span>
-                      </>
-                    ) : null}
+            <div className="border-border shrink-0 border-b px-3 py-1.5">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground flex flex-wrap items-center gap-1 text-[11px]">
+                      <button
+                        type="button"
+                        className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
+                        onClick={() => {
+                          markLocalSelectionChange();
+                          setSelectedOwnerId(null);
+                          setSelectedBaseId(null);
+                          setSelectedDocumentId(null);
+                        }}
+                      >
+                        <HouseIcon className="size-4" />
+                        <span>{managerTitle}</span>
+                      </button>
+                      {selectedOwnerGroup ? (
+                        <>
+                          <ChevronRightIcon className="size-4" />
+                          <button
+                            type="button"
+                            className="hover:text-foreground transition-colors"
+                            onClick={() => {
+                              markLocalSelectionChange();
+                              setSelectedBaseId(null);
+                              setSelectedDocumentId(null);
+                            }}
+                          >
+                            {selectedOwnerGroup.ownerName}
+                          </button>
+                        </>
+                      ) : null}
+                      {selectedBase ? (
+                        <>
+                          <ChevronRightIcon className="size-4" />
+                          <span className="text-foreground">
+                            {selectedBase.name}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+
+                    <h2 className="mt-0.5 truncate text-sm font-semibold tracking-tight">
+                      {selectedBase
+                        ? selectedBase.name
+                        : selectedOwnerGroup
+                          ? selectedOwnerGroup.ownerName
+                          : managerTitle}
+                    </h2>
+                    <p className="text-muted-foreground mt-0.5 line-clamp-1 max-w-4xl text-[11px] leading-4">
+                      {selectedBase
+                        ? (selectedBase.description ?? activeLibraryDescription)
+                        : selectedOwnerGroup
+                          ? t.knowledge.baseCount(selectedOwnerBases.length)
+                          : managerDescription}
+                    </p>
                   </div>
 
-                  <h2 className="mt-2 text-xl font-semibold tracking-tight">
-                    {selectedBase
-                      ? selectedBase.name
-                      : selectedOwnerGroup
-                        ? selectedOwnerGroup.ownerName
-                        : managerTitle}
-                  </h2>
-                  <p className="text-muted-foreground mt-1 line-clamp-2 max-w-3xl text-sm leading-6">
-                    {selectedBase
-                      ? (selectedBase.description ?? activeLibraryDescription)
-                      : selectedOwnerGroup
-                        ? t.knowledge.baseCount(selectedOwnerBases.length)
-                        : managerDescription}
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="relative">
-                    <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder={t.knowledge.searchPlaceholder}
-                      className="h-11 w-full min-w-[260px] rounded-md pl-10 sm:w-[320px]"
-                    />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                  <div className="flex flex-wrap items-center gap-1.5 xl:ml-auto">
                     <Button
                       type="button"
-                      className="rounded-md px-4"
+                      size="sm"
+                      aria-label={t.knowledge.uploadButton}
+                      title={t.knowledge.uploadButton}
+                      className="h-7 rounded-md px-2 text-xs"
                       onClick={() => setUploadDialogOpen(true)}
                     >
                       <UploadIcon className="size-4" />
-                      {t.knowledge.uploadButton}
+                      <span className="hidden 2xl:inline">
+                        {t.knowledge.uploadButton}
+                      </span>
                     </Button>
-                    {derivedClearAllTarget &&
-                    derivedClearAllTarget.baseCount > 0 ? (
+                    {derivedClearAllTarget?.baseCount ? (
                       <Button
                         type="button"
                         variant="outline"
-                        className="rounded-md px-4 text-red-600 hover:text-red-700"
+                        size="sm"
+                        aria-label={t.common.clearAll}
+                        title={t.common.clearAll}
+                        className="h-7 rounded-md px-2 text-xs text-red-600 hover:text-red-700"
                         disabled={
                           clearingOwnerId === derivedClearAllTarget.ownerId
                         }
@@ -2684,14 +2799,19 @@ export function ThreadKnowledgeManagementPage() {
                         ) : (
                           <Trash2Icon className="size-4" />
                         )}
-                        {t.common.clearAll}
+                        <span className="hidden 2xl:inline">
+                          {t.common.clearAll}
+                        </span>
                       </Button>
                     ) : null}
                     {selectedBase && canDeleteSelectedBase ? (
                       <Button
                         type="button"
                         variant="destructive"
-                        className="rounded-md px-4"
+                        size="sm"
+                        aria-label={t.common.delete}
+                        title={t.common.delete}
+                        className="h-7 rounded-md px-2 text-xs"
                         disabled={deletingBaseId === selectedBase.id}
                         onClick={() => setDeleteBaseTarget(selectedBase)}
                       >
@@ -2700,307 +2820,349 @@ export function ThreadKnowledgeManagementPage() {
                         ) : (
                           <Trash2Icon className="size-4" />
                         )}
-                        {t.common.delete}
+                        <span className="hidden 2xl:inline">
+                          {t.common.delete}
+                        </span>
                       </Button>
                     ) : null}
                     <Button
                       asChild
                       variant="outline"
-                      className="rounded-md px-4"
+                      size="sm"
+                      className="h-7 rounded-md px-2 text-xs"
                     >
-                      <Link to={chatPath}>
-                        {isThreadScoped
-                          ? t.knowledge.backToChat
-                          : t.knowledge.backToAgents}
+                      <Link
+                        aria-label={
+                          isThreadScoped
+                            ? t.knowledge.backToChat
+                            : t.knowledge.backToAgents
+                        }
+                        title={
+                          isThreadScoped
+                            ? t.knowledge.backToChat
+                            : t.knowledge.backToAgents
+                        }
+                        to={chatPath}
+                      >
+                        <span className="hidden 2xl:inline">
+                          {isThreadScoped
+                            ? t.knowledge.backToChat
+                            : t.knowledge.backToAgents}
+                        </span>
                         <ArrowRightIcon className="size-4" />
                       </Link>
                     </Button>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {selectedBase ? (
-                  <>
-                    <Badge variant="outline">
-                      {t.knowledge.documentCount(selectedBaseDocuments.length)}
-                    </Badge>
-                    <Badge variant="outline">
-                      {t.knowledge.readyCount(
-                        selectedBaseDocuments.filter(
-                          (document) =>
-                            getKnowledgeDocumentStatus(document) === "ready",
-                        ).length,
-                      )}
-                    </Badge>
-                    {threadId ? (
-                      <Button
-                        size="sm"
-                        variant={
-                          selectedBase.attached_to_thread
-                            ? "secondary"
-                            : "outline"
-                        }
-                        disabled={bindingBusyBaseId === selectedBase.id}
-                        className="rounded-md"
-                        onClick={() =>
-                          void handleBinding(
-                            selectedBase,
-                            !selectedBase.attached_to_thread,
-                          )
-                        }
-                      >
-                        {bindingBusyBaseId === selectedBase.id ? (
-                          <LoaderIcon className="size-4 animate-spin" />
-                        ) : selectedBase.attached_to_thread ? (
-                          t.knowledge.detach
-                        ) : (
-                          t.knowledge.attach
-                        )}
-                      </Button>
+                <div className="flex flex-col gap-1.5 xl:flex-row xl:items-center">
+                  <div className="relative">
+                    <SearchIcon className="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder={t.knowledge.searchPlaceholder}
+                      className="h-7 w-full min-w-[200px] rounded-md pl-8 text-xs sm:w-[240px]"
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    {selectedBase ? (
+                      <>
+                        <Badge variant="outline">
+                          {t.knowledge.documentCount(
+                            selectedBaseDocuments.length,
+                          )}
+                        </Badge>
+                        <Badge variant="outline">
+                          {t.knowledge.readyCount(
+                            selectedBaseDocuments.filter(
+                              (document) =>
+                                getKnowledgeDocumentStatus(document) ===
+                                "ready",
+                            ).length,
+                          )}
+                        </Badge>
+                        {threadId ? (
+                          <Button
+                            size="sm"
+                            variant={
+                              selectedBase.attached_to_thread
+                                ? "secondary"
+                                : "outline"
+                            }
+                            disabled={bindingBusyBaseId === selectedBase.id}
+                            className="h-7 rounded-md px-2 text-xs"
+                            onClick={() =>
+                              void handleBinding(
+                                selectedBase,
+                                !selectedBase.attached_to_thread,
+                              )
+                            }
+                          >
+                            {bindingBusyBaseId === selectedBase.id ? (
+                              <LoaderIcon className="size-4 animate-spin" />
+                            ) : selectedBase.attached_to_thread ? (
+                              t.knowledge.detach
+                            ) : (
+                              t.knowledge.attach
+                            )}
+                          </Button>
+                        ) : null}
+                        {selectedBase.owner_id === user?.id ? (
+                          <div className="border-border bg-muted/40 flex items-center gap-2 rounded-md border px-2 py-1">
+                            <span className="text-xs">
+                              {t.knowledge.previewSetting}
+                            </span>
+                            <Switch
+                              checked={selectedBase.preview_enabled}
+                              disabled={settingsBusyBaseId === selectedBase.id}
+                              onCheckedChange={(checked) =>
+                                void handlePreviewSetting(selectedBase, checked)
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <Badge variant="outline">
+                          {t.knowledge.documentCount(totalDocumentCount)}
+                        </Badge>
+                        <Badge variant="outline">
+                          {t.knowledge.readyCount(readyCount)}
+                        </Badge>
+                        {activeCount > 0 ? (
+                          <Badge variant="secondary">
+                            {t.knowledge.activeCount(activeCount)}
+                          </Badge>
+                        ) : null}
+                        {isThreadScoped ? (
+                          <Badge variant="outline">
+                            {t.knowledge.attachedBaseCount(attachedBaseCount)}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                    {selectedBase ? (
+                      <KnowledgeBaseBuildSummary
+                        documents={selectedBase.documents}
+                        compact
+                        className="max-w-md min-w-[220px] flex-1"
+                      />
                     ) : null}
-                    {selectedBase.owner_id === user?.id ? (
-                      <div className="border-border bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-1.5">
-                        <span className="text-sm">
-                          {t.knowledge.previewSetting}
-                        </span>
-                        <Switch
-                          checked={selectedBase.preview_enabled}
-                          disabled={settingsBusyBaseId === selectedBase.id}
-                          onCheckedChange={(checked) =>
-                            void handlePreviewSetting(selectedBase, checked)
-                          }
-                        />
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <Badge variant="outline">
-                      {t.knowledge.documentCount(totalDocumentCount)}
-                    </Badge>
-                    <Badge variant="outline">
-                      {t.knowledge.readyCount(readyCount)}
-                    </Badge>
-                    {activeCount > 0 ? (
-                      <Badge variant="secondary">
-                        {t.knowledge.activeCount(activeCount)}
-                      </Badge>
-                    ) : null}
-                    {isThreadScoped ? (
-                      <Badge variant="outline">
-                        {t.knowledge.attachedBaseCount(attachedBaseCount)}
-                      </Badge>
-                    ) : null}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
-              {selectedBase ? (
-                <KnowledgeBaseBuildSummary
-                  documents={selectedBase.documents}
-                  className="mt-4 max-w-3xl"
-                />
-              ) : null}
             </div>
 
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="divide-border/60 min-h-full divide-y">
-                {isLoading ? (
-                  <div className="text-muted-foreground px-6 py-8 text-sm">
-                    {t.knowledge.loadingLibrary}
-                  </div>
-                ) : listMode === "owners" ? (
-                  ownerRows.map((owner) => (
-                    <div
-                      key={owner.ownerId}
-                      className="hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors"
-                    >
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                        onClick={() => {
-                          const ownerGroup =
-                            groupedBases.find(
-                              (group) => group.ownerId === owner.ownerId,
-                            ) ?? null;
-                          if (ownerGroup) {
-                            openOwner(ownerGroup);
-                          }
-                        }}
-                      >
-                        <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
-                          <FolderIcon className="size-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-semibold md:text-base">
-                            {owner.ownerName}
-                          </div>
-                          <div className="text-muted-foreground mt-1 text-sm">
-                            {t.knowledge.baseCount(owner.baseCount)} ·{" "}
-                            {t.knowledge.documentCount(owner.documentCount)}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="text-muted-foreground hidden text-sm lg:block">
-                        {t.knowledge.readyCount(owner.readyCount)}
-                      </div>
-                      <ChevronRightIcon className="text-muted-foreground size-4" />
+            {selectedBase ? (
+              // The base workbench owns its own scroll containers. Keeping it
+              // out of the page-level ScrollArea lets Sigma use the full graph
+              // viewport instead of inheriting a fixed-height scrolling list.
+              <div className="h-full min-h-0 flex-1 overflow-hidden">
+                <KnowledgeBaseWorkbench
+                  activeTab={baseWorkbenchTab}
+                  onActiveTabChange={setBaseWorkbenchTab}
+                  workspaceTreeNodes={workspaceTreeQuery.data?.tree ?? []}
+                  workspaceTreeLoading={workspaceTreeQuery.isLoading}
+                  workspaceTreeError={
+                    workspaceTreeQuery.error instanceof Error
+                      ? workspaceTreeQuery.error
+                      : null
+                  }
+                  selectedWorkspacePath={effectiveSelectedWorkspacePath}
+                  onSelectWorkspacePath={setSelectedWorkspacePath}
+                  workspaceFileContent={workspaceFileQuery.data?.content}
+                  workspaceFileLoading={workspaceFileQuery.isLoading}
+                  workspaceFileError={
+                    workspaceFileQuery.error instanceof Error
+                      ? workspaceFileQuery.error
+                      : null
+                  }
+                  graph={workspaceGraphQuery.data}
+                  graphLoading={workspaceGraphQuery.isLoading}
+                  graphError={
+                    workspaceGraphQuery.error instanceof Error
+                      ? workspaceGraphQuery.error
+                      : null
+                  }
+                  documents={selectedBaseDocuments}
+                  selectedDocumentId={selectedDocumentId}
+                  onOpenDocument={openDocument}
+                  t={t}
+                />
+              </div>
+            ) : (
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="divide-border/60 min-h-full divide-y">
+                  {isLoading ? (
+                    <div className="text-muted-foreground px-4 py-6 text-sm">
+                      {t.knowledge.loadingLibrary}
                     </div>
-                  ))
-                ) : listMode === "bases" ? (
-                  selectedOwnerBases.map((knowledgeBase) => {
-                    const readyDocuments = knowledgeBase.documents.filter(
-                      (document) =>
-                        getKnowledgeDocumentStatus(document) === "ready",
-                    ).length;
-                    const activeDocuments = knowledgeBase.documents.filter(
-                      (document) => isKnowledgeDocumentBuildActive(document),
-                    ).length;
-
-                    return (
+                  ) : listMode === "owners" ? (
+                    ownerRows.map((owner) => (
                       <div
-                        key={knowledgeBase.id}
-                        className="hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors"
+                        key={owner.ownerId}
+                        className="hover:bg-muted/40 flex items-center gap-3 px-4 py-3 transition-colors"
                       >
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                          onClick={() => openBase(knowledgeBase)}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          onClick={() => {
+                            const ownerGroup =
+                              groupedBases.find(
+                                (group) => group.ownerId === owner.ownerId,
+                              ) ?? null;
+                            if (ownerGroup) {
+                              openOwner(ownerGroup);
+                            }
+                          }}
                         >
-                          <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
-                            <FolderIcon className="size-5" />
+                          <div className="bg-muted flex size-8 items-center justify-center rounded-md">
+                            <FolderIcon className="size-4" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-semibold md:text-base">
-                              {knowledgeBase.name}
+                            <div className="truncate text-sm font-semibold">
+                              {owner.ownerName}
                             </div>
-                            <div className="text-muted-foreground mt-1 text-sm">
-                              {knowledgeBase.description ??
-                                knowledgeBaseContextLabel(knowledgeBase) ??
-                                `${visibilityLabel(knowledgeBase.visibility, t)} · ${knowledgeBase.preview_enabled ? t.knowledge.previewEnabled : t.knowledge.previewDisabled}`}
+                            <div className="text-muted-foreground mt-0.5 text-xs">
+                              {t.knowledge.baseCount(owner.baseCount)} ·{" "}
+                              {t.knowledge.documentCount(owner.documentCount)}
                             </div>
                           </div>
                         </button>
-                        <div className="hidden items-center gap-2 lg:flex">
-                          <Badge variant="outline">
-                            {t.knowledge.documentCount(
-                              knowledgeBase.documents.length,
-                            )}
-                          </Badge>
-                          <Badge variant="outline">
-                            {t.knowledge.readyCount(readyDocuments)}
-                          </Badge>
-                          {activeDocuments > 0 ? (
-                            <Badge variant="secondary">
-                              {t.knowledge.activeCount(activeDocuments)}
-                            </Badge>
-                          ) : null}
+                        <div className="text-muted-foreground hidden text-xs lg:block">
+                          {t.knowledge.readyCount(owner.readyCount)}
                         </div>
                         <ChevronRightIcon className="text-muted-foreground size-4" />
                       </div>
-                    );
-                  })
-                ) : selectedBase ? (
-                  <KnowledgeBaseWorkbench
-                    activeTab={baseWorkbenchTab}
-                    onActiveTabChange={setBaseWorkbenchTab}
-                    workspaceTreeNodes={workspaceTreeQuery.data?.tree ?? []}
-                    workspaceTreeLoading={workspaceTreeQuery.isLoading}
-                    workspaceTreeError={
-                      workspaceTreeQuery.error instanceof Error
-                        ? workspaceTreeQuery.error
-                        : null
-                    }
-                    selectedWorkspacePath={effectiveSelectedWorkspacePath}
-                    onSelectWorkspacePath={setSelectedWorkspacePath}
-                    workspaceFileContent={workspaceFileQuery.data?.content}
-                    workspaceFileLoading={workspaceFileQuery.isLoading}
-                    workspaceFileError={
-                      workspaceFileQuery.error instanceof Error
-                        ? workspaceFileQuery.error
-                        : null
-                    }
-                    graph={workspaceGraphQuery.data}
-                    graphLoading={workspaceGraphQuery.isLoading}
-                    graphError={
-                      workspaceGraphQuery.error instanceof Error
-                        ? workspaceGraphQuery.error
-                        : null
-                    }
-                    documents={selectedBaseDocuments}
-                    selectedDocumentId={selectedDocumentId}
-                    onOpenDocument={openDocument}
-                    t={t}
-                  />
-                ) : selectedBaseDocuments.length === 0 ? (
-                  <div className="px-6 py-8">
-                    <ExplorerEmptyState
-                      icon={FileTextIcon}
-                      title={t.knowledge.noDocumentSelectedTitle}
-                      description={t.knowledge.noDocumentSelectedDescription}
-                    />
-                  </div>
-                ) : (
-                  selectedBaseDocuments.map((document) => {
-                    const status = getKnowledgeDocumentStatus(document);
+                    ))
+                  ) : listMode === "bases" ? (
+                    selectedOwnerBases.map((knowledgeBase) => {
+                      const readyDocuments = knowledgeBase.documents.filter(
+                        (document) =>
+                          getKnowledgeDocumentStatus(document) === "ready",
+                      ).length;
+                      const activeDocuments = knowledgeBase.documents.filter(
+                        (document) => isKnowledgeDocumentBuildActive(document),
+                      ).length;
 
-                    return (
-                      <div
-                        key={document.id}
-                        className={cn(
-                          "hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors",
-                          selectedDocumentId === document.id && "bg-primary/5",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                          onClick={() => openDocument(document)}
+                      return (
+                        <div
+                          key={knowledgeBase.id}
+                          className="hover:bg-muted/40 flex items-center gap-3 px-4 py-3 transition-colors"
                         >
-                          <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
-                            <FileTextIcon className="size-5" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-semibold md:text-base">
-                              {document.display_name}
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            onClick={() => openBase(knowledgeBase)}
+                          >
+                            <div className="bg-muted flex size-8 items-center justify-center rounded-md">
+                              <FolderIcon className="size-4" />
                             </div>
-                            <div className="text-muted-foreground mt-1 line-clamp-2 text-sm">
-                              {document.doc_description ??
-                                `${document.file_kind} · ${visibilityLabel(document.visibility, t)}`}
-                            </div>
-                            {status !== "ready" ? (
-                              <div className="mt-3 max-w-sm">
-                                <Progress
-                                  value={getKnowledgeDocumentProgress(document)}
-                                />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold">
+                                {knowledgeBase.name}
                               </div>
+                              <div className="text-muted-foreground mt-0.5 line-clamp-1 text-xs">
+                                {knowledgeBase.description ??
+                                  knowledgeBaseContextLabel(knowledgeBase) ??
+                                  `${visibilityLabel(knowledgeBase.visibility, t)} · ${knowledgeBase.preview_enabled ? t.knowledge.previewEnabled : t.knowledge.previewDisabled}`}
+                              </div>
+                            </div>
+                          </button>
+                          <div className="hidden items-center gap-2 lg:flex">
+                            <Badge variant="outline">
+                              {t.knowledge.documentCount(
+                                knowledgeBase.documents.length,
+                              )}
+                            </Badge>
+                            <Badge variant="outline">
+                              {t.knowledge.readyCount(readyDocuments)}
+                            </Badge>
+                            {activeDocuments > 0 ? (
+                              <Badge variant="secondary">
+                                {t.knowledge.activeCount(activeDocuments)}
+                              </Badge>
                             ) : null}
                           </div>
-                        </button>
-                        <div className="hidden items-center gap-2 lg:flex">
-                          {document.page_count ? (
-                            <Badge variant="outline">
-                              {t.knowledge.pageCount(document.page_count)}
-                            </Badge>
-                          ) : null}
-                          <Badge variant={statusTone(status)}>
-                            {statusLabel(status, t)}
-                          </Badge>
+                          <ChevronRightIcon className="text-muted-foreground size-4" />
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="rounded-md"
-                          onClick={() => openDocument(document)}
+                      );
+                    })
+                  ) : selectedBaseDocuments.length === 0 ? (
+                    <div className="px-6 py-8">
+                      <ExplorerEmptyState
+                        icon={FileTextIcon}
+                        title={t.knowledge.noDocumentSelectedTitle}
+                        description={t.knowledge.noDocumentSelectedDescription}
+                      />
+                    </div>
+                  ) : (
+                    selectedBaseDocuments.map((document) => {
+                      const status = getKnowledgeDocumentStatus(document);
+
+                      return (
+                        <div
+                          key={document.id}
+                          className={cn(
+                            "hover:bg-muted/40 flex items-center gap-3 px-4 py-3 transition-colors",
+                            selectedDocumentId === document.id &&
+                              "bg-primary/5",
+                          )}
                         >
-                          {t.common.preview}
-                        </Button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </ScrollArea>
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            onClick={() => openDocument(document)}
+                          >
+                            <div className="bg-muted flex size-8 items-center justify-center rounded-md">
+                              <FileTextIcon className="size-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold">
+                                {document.display_name}
+                              </div>
+                              <div className="text-muted-foreground mt-0.5 line-clamp-1 text-xs">
+                                {document.doc_description ??
+                                  `${document.file_kind} · ${visibilityLabel(document.visibility, t)}`}
+                              </div>
+                              {status !== "ready" ? (
+                                <div className="mt-3 max-w-sm">
+                                  <Progress
+                                    value={getKnowledgeDocumentProgress(
+                                      document,
+                                    )}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          </button>
+                          <div className="hidden items-center gap-2 lg:flex">
+                            {document.page_count ? (
+                              <Badge variant="outline">
+                                {t.knowledge.pageCount(document.page_count)}
+                              </Badge>
+                            ) : null}
+                            <Badge variant={statusTone(status)}>
+                              {statusLabel(status, t)}
+                            </Badge>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 rounded-md px-2.5 text-xs"
+                            onClick={() => openDocument(document)}
+                          >
+                            {t.common.preview}
+                          </Button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            )}
           </section>
 
           <Sheet
