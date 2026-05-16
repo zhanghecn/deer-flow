@@ -406,20 +406,21 @@ func main() {
 		}
 	}
 
-	// Public API routes. Create/list surfaces with an explicit agent can opt into
-	// agent-owned trusted-external auth; generic file/model routes still require
-	// a caller-supplied API key because they do not carry a target agent.
+	// Public API routes. Surfaces with an explicit agent can opt into
+	// agent-owned trusted-external auth. File upload reads that explicit agent
+	// from multipart form data so uploaded inputs and turns share one auth owner.
 	open := r.Group("/v1")
 	{
 		apiTokenAuth := middleware.APITokenAuth(tokenRepo)
 		turnAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIBodyAgentField("agent"))
 		modelAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIBodyAgentField("model"))
+		fileAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIFormAgentField("agent"))
 		queryAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIQueryAgent("agent"))
 		responseAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIResponseIDAgent(publicAPIInvocationRepo, "id"))
 		artifactAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIArtifactFileAgent(publicAPIInvocationRepo, "id"))
 
 		open.GET("/models", apiTokenAuth, middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
-		open.POST("/files", apiTokenAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
+		open.POST("/files", fileAgentAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
 		open.GET("/files/:id", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
 		open.POST("/turns", turnAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
 		open.POST("/turns/:id/cancel", responseAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Cancel)

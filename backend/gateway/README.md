@@ -194,6 +194,7 @@ go run ./cmd/server
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/v1/models` | 列出当前 API Token 可见的已发布 Agent |
+| POST | `/v1/files` | 上传后续 `/v1/turns` 可引用的输入文件；`trusted_external` agent 可通过 multipart `agent` 字段免 API key |
 | POST | `/v1/responses` | 以 OpenAI Responses 兼容格式同步调用 Agent |
 | GET | `/v1/responses/:id` | 读取当前 API Token 创建的历史响应 |
 | POST | `/v1/chat/completions` | Chat Completions 兼容适配层 |
@@ -202,6 +203,7 @@ go run ./cmd/server
 补充约束：
 - Public `model` 字段映射为已发布 agent 名称，而不是底层 provider model id。
 - Open API 只允许调用 `prod` agent。
+- `/v1/files` 的 multipart `agent` 是显式结构化目标字段，不从文件名或自然语言推断；未配置 `trusted_external` 时仍需要 API Token。
 - 如果 LangGraph `runs/wait` 在 `200` body 中返回 `__error__`，Gateway 会把该运行错误直接映射成 `runtime_error`，避免把失败误报成空响应。
 
 ## 认证机制

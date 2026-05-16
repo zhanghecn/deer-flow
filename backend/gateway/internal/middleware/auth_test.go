@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -371,6 +372,129 @@ func TestPublicAPIAgentAuthResolvesTrustedExternalAgentFromResponseAndArtifactID
 	}
 	if len(tokenRepo.lastUsed) != 2 {
 		t.Fatalf("expected managed key last_used update for both lookups, got %#v", tokenRepo.lastUsed)
+	}
+}
+
+func TestPublicAPIAgentAuthAllowsTrustedExternalMultipartFileUpload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":                 "support",
+		"status":               "prod",
+		"owner_user_id":        ownerID.String(),
+		"public_api_auth_mode": model.PublicAPIAuthModeTrustedExternal,
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	router := gin.New()
+	router.POST(
+		"/v1/files",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIFormAgentField("agent")),
+		RequireAPITokenScopes("responses:create"),
+		func(c *gin.Context) {
+			if got := GetUserID(c); got != ownerID {
+				t.Fatalf("expected owner user id %s, got %s", ownerID, got)
+			}
+			if GetAPITokenID(c) == uuid.Nil {
+				t.Fatal("expected managed token id in context")
+			}
+			if got := c.PostForm("purpose"); got != "bazi_analysis" {
+				t.Fatalf("expected purpose form field to survive middleware, got %q", got)
+			}
+			fileHeader, err := c.FormFile("file")
+			if err != nil {
+				t.Fatalf("expected upload file to survive middleware multipart parsing: %v", err)
+			}
+			if fileHeader.Filename != "chart.md" {
+				t.Fatalf("expected uploaded filename chart.md, got %q", fileHeader.Filename)
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("agent", "support"); err != nil {
+		t.Fatalf("write agent field: %v", err)
+	}
+	if err := writer.WriteField("purpose", "bazi_analysis"); err != nil {
+		t.Fatalf("write purpose field: %v", err)
+	}
+	fileWriter, err := writer.CreateFormFile("file", "chart.md")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fileWriter.Write([]byte("# chart\n")); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("expected one managed key creation for trusted upload, got %d", len(repo.created))
+	}
+	if len(repo.lastUsed) != 1 || repo.lastUsed[0] != repo.created[0].ID {
+		t.Fatalf("expected managed key last_used update, got %#v", repo.lastUsed)
+	}
+}
+
+func TestPublicAPIAgentAuthRequiresTokenForDefaultMultipartFileUpload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":          "support",
+		"status":        "prod",
+		"owner_user_id": ownerID.String(),
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	router := gin.New()
+	router.POST(
+		"/v1/files",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIFormAgentField("agent")),
+		func(c *gin.Context) {
+			t.Fatal("handler should not run for api_key_required upload without token")
+		},
+	)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("agent", "support"); err != nil {
+		t.Fatalf("write agent field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 0 {
+		t.Fatalf("expected no managed key creation for default upload, got %d", len(repo.created))
 	}
 }
 

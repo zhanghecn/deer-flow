@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -256,6 +257,38 @@ func PublicAPIBodyAgentField(field string) PublicAPIAgentResolver {
 func PublicAPIQueryAgent(param string) PublicAPIAgentResolver {
 	return func(c *gin.Context) (string, error) {
 		return strings.TrimSpace(c.Query(param)), nil
+	}
+}
+
+// PublicAPIFormAgentField resolves the target agent from an explicit form field
+// without buffering the upload body. Multipart parsing stores file handles on
+// the request so the downstream CreateFile handler can still call FormFile.
+func PublicAPIFormAgentField(field string) PublicAPIAgentResolver {
+	fieldName := strings.TrimSpace(field)
+	return func(c *gin.Context) (string, error) {
+		if fieldName == "" {
+			return "", nil
+		}
+
+		mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+		if err != nil {
+			return "", nil
+		}
+
+		switch strings.ToLower(mediaType) {
+		case "multipart/form-data":
+			if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+				return "", newPublicAPIAgentResolveError(http.StatusBadRequest, "failed to parse multipart form")
+			}
+		case "application/x-www-form-urlencoded":
+			if err := c.Request.ParseForm(); err != nil {
+				return "", newPublicAPIAgentResolveError(http.StatusBadRequest, "failed to parse form")
+			}
+		default:
+			return "", nil
+		}
+
+		return strings.TrimSpace(c.Request.FormValue(fieldName)), nil
 	}
 }
 
