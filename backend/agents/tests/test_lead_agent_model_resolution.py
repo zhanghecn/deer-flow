@@ -1371,6 +1371,45 @@ def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp
     assert result["backend"] is not None
 
 
+def test_make_lead_agent_disables_default_thinking_for_read_context(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"plain-model": _make_model("plain-model", supports_thinking=False)})
+
+    create_calls = _install_lead_agent_graph_build_stubs(
+        monkeypatch,
+        tmp_path,
+        store=store,
+        agent_config=_make_agent_config(),
+    )
+    chat_model_calls: list[dict[str, object]] = []
+
+    def _capture_chat_model(**kwargs: object) -> object:
+        chat_model_calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", _capture_chat_model)
+
+    class _Runtime:
+        execution_runtime = None
+        user = None
+
+    result = asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "model_name": "plain-model",
+                }
+            },
+            runtime=_Runtime(),
+        )
+    )
+
+    assert create_calls
+    assert result["graph_id"] == 1
+    assert create_calls[0]["model"] is not None
+    assert chat_model_calls[0]["thinking_enabled"] is False
+
+
 def test_make_lead_agent_skips_thread_runtime_persistence_for_read_context(monkeypatch, tmp_path):
     lead_agent_module._clear_lead_agent_graph_cache()
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})

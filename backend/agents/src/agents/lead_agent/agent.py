@@ -1222,6 +1222,8 @@ def _build_run_metadata(
 def _resolve_lead_agent_request(
     config: RunnableConfig,
     runtime: ServerRuntime | None,
+    *,
+    default_thinking_enabled: bool = True,
 ) -> LeadAgentRequest:
     cfg = _load_configurable_payload(config, runtime)
     command_resolution = resolve_runtime_command(
@@ -1234,7 +1236,11 @@ def _resolve_lead_agent_request(
     return LeadAgentRequest(
         thinking_enabled=_coerce_bool(
             cfg.get("thinking_enabled"),
-            default=True,
+            # Execution turns keep the historical default, but read-only graph
+            # loads for `/state` and `/history` never call the chat model. Their
+            # default must stay non-thinking so snapshot reads for non-reasoning
+            # models are not rejected by the capability gate.
+            default=default_thinking_enabled,
             field_name="thinking_enabled",
         ),
         effort=_coerce_effort(cfg.get("effort")),
@@ -1564,7 +1570,11 @@ def _create_lead_agent(
     prepare_runtime_resources: bool,
 ):
     _apply_backend_runtime_limits(config)
-    request = _resolve_lead_agent_request(config, runtime)
+    request = _resolve_lead_agent_request(
+        config,
+        runtime,
+        default_thinking_enabled=prepare_runtime_resources,
+    )
     db_store = get_runtime_db_store()
     request, resolution = _resolve_lead_agent_runtime(
         request=request,
