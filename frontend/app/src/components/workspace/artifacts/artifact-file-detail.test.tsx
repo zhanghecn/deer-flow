@@ -122,7 +122,6 @@ function MarkdownCitationRevealHarness() {
         filepath="/mnt/user-data/outputs/.knowledge/doc-1/canonical.md"
         threadId="thread-1"
         content="[citation:PRML.pdf p.12](kb://citation?artifact_path=/mnt/user-data/outputs/.knowledge/doc-1/PRML.pdf&locator_type=page&page=12)"
-        isLoading={false}
         error={null}
         language="markdown"
       />
@@ -197,7 +196,6 @@ describe("ArtifactFilePreview", () => {
           filepath="outputs/demo/README.md"
           threadId="thread-1"
           content="![Cover](./assets/cover.png)"
-          isLoading={false}
           error={null}
           language="markdown"
         />
@@ -209,6 +207,24 @@ describe("ArtifactFilePreview", () => {
         "blob:cover-image",
       );
     });
+  });
+
+  it("renders html previews from the original artifact url", () => {
+    renderWithProviders(
+      <ArtifactFilePreview
+        filepath="/mnt/user-data/outputs/demo/index.html"
+        threadId="thread-1"
+        content={'<script src="./assets/app.js"></script>'}
+        error={null}
+        language="html"
+      />,
+    );
+
+    const iframe = screen.getByTitle("index.html");
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
+    expect(iframe.getAttribute("src")).toContain(
+      "/api/threads/thread-1/artifacts/mnt/user-data/outputs/demo/index.html",
+    );
   });
 
   it("updates the inline pdf preview when citations reveal a new page", async () => {
@@ -336,7 +352,6 @@ describe("ArtifactFilePreview", () => {
         filepath="/mnt/user-data/outputs/.knowledge/doc-1/canonical.md"
         threadId="thread-1"
         content="![Figure 12](kb://asset?artifact_path=/mnt/user-data/outputs/.knowledge/doc-1/PRML.pdf&asset_path=/mnt/user-data/outputs/.knowledge/doc-1/assets/page-0012.png&locator_type=page&page=12)"
-        isLoading={false}
         error={null}
         language="markdown"
       />,

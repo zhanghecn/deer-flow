@@ -47,7 +47,6 @@ import {
   useArtifactContent,
   useArtifactObjectUrl,
 } from "@/core/artifacts/hooks";
-import { loadHtmlPreviewDocument } from "@/core/artifacts/html-preview";
 import {
   getOnlyOfficeDocumentDescriptor,
   loadOnlyOfficeConfig,
@@ -79,16 +78,6 @@ import type { OnlyOfficeDocumentEditor as OnlyOfficeDocumentEditorValue } from "
 
 type OnlyOfficeDocumentEditorComponent = typeof OnlyOfficeDocumentEditorValue;
 type ArtifactViewMode = "code" | "preview";
-
-function getArtifactPreviewErrorMessage(error: unknown, previewError: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (previewError instanceof Error) {
-    return previewError.message;
-  }
-  return "Failed to render artifact preview";
-}
 
 export function ArtifactFileDetail({
   className,
@@ -155,11 +144,7 @@ export function ArtifactFileDetail({
     }
     return previewTarget;
   }, [filepath, previewTarget]);
-  const {
-    content,
-    isLoading: isContentLoading,
-    error: contentError,
-  } = useArtifactContent({
+  const { content, error: contentError } = useArtifactContent({
     threadId,
     filepath: filepathFromProps,
     enabled: isCodeFile && !isWriteFile,
@@ -387,7 +372,6 @@ export function ArtifactFileDetail({
               filepath={previewFilepath}
               threadId={threadId}
               content={displayContent}
-              isLoading={isContentLoading}
               error={contentError}
               language={previewLanguage ?? "text"}
               activeHeading={activePreviewTarget?.heading ?? null}
@@ -431,7 +415,6 @@ export function ArtifactFilePreview({
   filepath,
   threadId,
   content,
-  isLoading,
   error,
   language,
   activeHeading = null,
@@ -441,7 +424,6 @@ export function ArtifactFilePreview({
   filepath: string;
   threadId: string;
   content: string;
-  isLoading: boolean;
   error: unknown;
   language: string;
   activeHeading?: string | null;
@@ -449,55 +431,6 @@ export function ArtifactFilePreview({
   revealSequence?: number | null;
 }) {
   const { isMock } = useThread();
-  const [previewDocument, setPreviewDocument] = useState("");
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<unknown>(null);
-
-  useEffect(() => {
-    if (language !== "html" || isLoading) {
-      setPreviewDocument("");
-      setPreviewLoading(false);
-      setPreviewError(null);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrls: string[] = [];
-    setPreviewLoading(true);
-    setPreviewError(null);
-
-    void loadHtmlPreviewDocument({
-      html: content,
-      filepath,
-      threadId,
-      isMock,
-    })
-      .then((result) => {
-        if (cancelled) {
-          result.objectUrls.forEach((url) => URL.revokeObjectURL(url));
-          return;
-        }
-
-        objectUrls = result.objectUrls;
-        setPreviewDocument(result.html);
-      })
-      .catch((loadError: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setPreviewError(loadError);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPreviewLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [content, filepath, isLoading, isMock, language, threadId]);
 
   if (language === "markdown") {
     return (
@@ -513,23 +446,26 @@ export function ArtifactFilePreview({
     );
   }
   if (language === "html") {
-    if (error instanceof Error || previewError instanceof Error) {
+    if (error instanceof Error) {
       return (
         <ArtifactUnavailableCard
           filepath={filepath}
           label="Preview unavailable"
-          description={getArtifactPreviewErrorMessage(error, previewError)}
+          description={error.message}
         />
       );
     }
-    if (isLoading || previewLoading || !previewDocument) {
-      return (
-        <div className="flex size-full items-center justify-center">
-          <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
-        </div>
-      );
-    }
-    return <iframe className="size-full" srcDoc={previewDocument} />;
+
+    // HTML artifacts are served directly so their own relative asset graph
+    // stays untouched. The browser resolves ./assets/* from the artifact API
+    // URL instead of from the workspace SPA route.
+    return (
+      <iframe
+        className="size-full"
+        src={urlOfArtifact({ filepath, threadId, isMock })}
+        title={getFileName(filepath)}
+      />
+    );
   }
   return null;
 }

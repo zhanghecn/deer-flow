@@ -1,8 +1,7 @@
 import { getFileName } from "@/core/utils/files";
 
-import { loadHtmlPreviewDocument } from "./html-preview";
 import { loadArtifactBlob } from "./loader";
-import { loadArtifactContent } from "./loader";
+import { urlOfArtifact } from "./utils";
 
 function isHtmlArtifact(filepath: string) {
   return filepath.toLowerCase().endsWith(".html");
@@ -49,36 +48,19 @@ export async function openArtifactInNewWindow({
   preview?: "pdf";
 }) {
   if (!preview && isHtmlArtifact(filepath)) {
-    const html = await loadArtifactContent({
-      filepath,
-      threadId,
-      isMock,
-    });
-    const rewrittenDocument = await loadHtmlPreviewDocument({
-      html,
-      filepath,
-      threadId,
-      isMock,
-    });
-    const objectURL = URL.createObjectURL(
-      new Blob([rewrittenDocument.html], { type: "text/html" }),
-    );
     const openedWindow = window.open(
-      objectURL,
+      urlOfArtifact({
+        filepath,
+        threadId,
+        isMock,
+      }),
       "_blank",
       "noopener,noreferrer",
     );
 
     if (!openedWindow) {
-      URL.revokeObjectURL(objectURL);
-      rewrittenDocument.objectUrls.forEach((url) => URL.revokeObjectURL(url));
       throw new Error("Failed to open artifact in a new window");
     }
-
-    window.setTimeout(() => {
-      URL.revokeObjectURL(objectURL);
-      rewrittenDocument.objectUrls.forEach((url) => URL.revokeObjectURL(url));
-    }, 60_000);
     return;
   }
 
