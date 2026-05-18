@@ -348,21 +348,8 @@ KnowledgeContextMiddleware injects <knowledge_attached_workspaces>
 - `get_source_evidence` 只返回 bounded 原文片段，避免把大文件或 raw cache 直接塞给模型
 - `get_workspace_file_tree` 主要用于导航和调试，不是问答首选工具
 - 不允许 Agent 为了回答 attached knowledge 问题去 `grep/glob/read_file/ls/find/execute` 爬实现路径；只有用户明确要求 debug storage/indexing 时才允许
-- `get_document_tree` / `get_document_evidence` / `get_document_image` / `get_document_tree_node_detail` 仍可作为显式 opt-in 兼容工具，但不在默认 tool catalog 和默认 runtime tool surface 中
-
-### Compatibility Tree Window Semantics
-
-- `get_document_tree` 是显式 opt-in 兼容工具，主要服务旧 agent / 调试 / 迁移审查
-- 兼容工具的根调用会做预算控制
-- 当根节点按 `max_depth=2` 展开后预计太大时，系统会自动降到更浅的 root overview，而不是把整个根树直接吐给模型
-- 响应里会显式返回：
-  - `requested_max_depth`
-  - `max_depth`
-  - `window_mode`
-  - `collapsed_root_overview`
-- 根 overview 里优先暴露顶层分支的 `node_id`、`child_count`、`has_more_children`、`remaining_child_count`
-- Agent 应该选中最相关的 `node_id` 再继续下钻，而不是反复请求整棵根树
-- 这个策略的目标是把大文档检索稳定控制在工具预算内，减少 `/large_tool_results/...` spill
+- 旧的 document-level PageTree 工具已经从 agent-facing tool registry 删除，不再作为 opt-in 兼容入口保留
+- PageTree 派生数据只允许作为 ingest/debug 元数据存在；面向 agent 的检索必须走 Wiki Workspace 工具
 
 ### Agent Runtime Guidance
 

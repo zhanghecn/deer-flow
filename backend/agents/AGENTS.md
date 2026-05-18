@@ -99,8 +99,8 @@ Critical agent protocol rules for future work:
 - Knowledge Asset Store is application-domain storage, not a runtime backend. Do not mix it with `BackendProtocol`, `SandboxBackendProtocol`, or `SandboxProvider`.
 - The primary agent-facing KB protocol is middleware-injected `<knowledge_attached_workspaces>` -> `search_knowledge_workspace` -> `get_wiki_page` -> `get_source_evidence` when narrower original-source snippets are needed.
 - `get_workspace_file_tree` and `get_knowledge_graph` are navigation / audit helpers. They are not the default first step for answering knowledge questions.
-- `get_document_tree`, `get_document_evidence`, `get_document_image`, and `get_document_tree_node_detail` are explicit opt-in compatibility tools only. Keep them working, but do not make new prompts, middleware, tests, or agent defaults depend on them as the primary flow.
-- Wiki Workspace files under Knowledge Asset Store are the current agent retrieval source of truth. PageTree remains an ingest/debug/compatibility artifact, not the default answer protocol.
+- Legacy document-level PageTree tools have been removed from the agent-facing tool registry. Do not reintroduce them as opt-in compatibility tools.
+- Wiki Workspace files under Knowledge Asset Store are the current agent retrieval source of truth. PageTree-derived metadata may remain as ingest/debug data, but it is not an agent answer protocol.
 - KB retrieval stays on the same rule everywhere: attached workspace metadata first, generated wiki search/page inspection next, bounded source evidence only when exact original text is needed. Do not reintroduce direct full-text or PageTree retrieval as the default first step.
 - KB knowledge guidance is prompt-first. Do not reintroduce hidden post-answer retries once visible streaming has started.
 - Keep the global tool registry stable for knowledge turns. Do not reintroduce tool-call blocking heuristics for generic tools; prefer prompt guidance plus trace-based verification.

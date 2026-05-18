@@ -71,10 +71,7 @@ tool_groups: []
     assert "get_source_evidence" in tool_names
     assert "get_knowledge_graph" in tool_names
     assert "get_workspace_file_tree" in tool_names
-    assert "get_document_tree" not in tool_names
-    assert "get_document_evidence" not in tool_names
-    assert "get_document_image" not in tool_names
-    assert "get_document_tree_node_detail" not in tool_names
+    assert not any(name.startswith("get_document_") for name in tool_names)
 
 
 def test_get_available_tools_does_not_duplicate_read_file_image_support(monkeypatch, tmp_path: Path):
@@ -123,54 +120,6 @@ def test_prompt_omits_question_contract_for_explicit_empty_tool_names() -> None:
 
     assert "call `question`" not in prompt
     assert "question_tool_contract" not in prompt
-
-
-def test_get_available_tools_resolves_opt_in_knowledge_compatibility_tool(monkeypatch, tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """
-models: []
-sandbox:
-  use: src.sandbox.local:LocalSandboxProvider
-tools: []
-tool_groups: []
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
-
-    tools = get_available_tools(
-        tool_names=["get_document_tree_node_detail"],
-        include_mcp=False,
-        model_supports_vision=False,
-    )
-
-    assert [tool.name for tool in tools] == ["get_document_tree_node_detail"]
-
-
-def test_get_available_tools_resolves_opt_in_legacy_document_tree_tool(monkeypatch, tmp_path: Path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """
-models: []
-sandbox:
-  use: src.sandbox.local:LocalSandboxProvider
-tools: []
-tool_groups: []
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
-
-    tools = get_available_tools(
-        tool_names=["get_document_tree"],
-        include_mcp=False,
-        model_supports_vision=False,
-    )
-
-    assert [tool.name for tool in tools] == ["get_document_tree"]
 
 
 def test_get_available_tools_prefers_explicit_tool_names(monkeypatch, tmp_path: Path):
@@ -228,7 +177,7 @@ tool_groups: []
     monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
 
     tools = get_available_tools(
-        tool_names=["get_document_tree"],
+        tool_names=["search_knowledge_workspace"],
         include_mcp=False,
         model_supports_vision=False,
         agent_status="dev",
@@ -242,7 +191,7 @@ tool_groups: []
     )
 
     assert [tool.name for tool in tools] == [
-        "get_document_tree",
+        "search_knowledge_workspace",
         "install_skill_from_registry",
         "save_skill_to_store",
         "setup_agent",

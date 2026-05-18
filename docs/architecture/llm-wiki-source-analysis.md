@@ -1352,8 +1352,8 @@ def _build_knowledge_protocol_prompt(workspaces):
         "  <rule>When the answer needs narrower original-source text, call get_source_evidence(...).</rule>",
         # 强制模型使用注入的 workspace_id，避免猜 bazi-knowledge 这种名字。
         "  <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>",
-        # 旧工具仍存在，但不是默认流程。
-        "  <rule>Do not call get_document_tree or get_document_evidence for the default flow...</rule>",
+        # 旧 PageTree 工具不再暴露给 agent。
+        "  <rule>Only workspace knowledge tools are available for attached knowledge retrieval.</rule>",
         # 禁止通过通用文件工具绕过知识库协议。
         "  <rule>Do not use grep, glob, read_file, ls, find, execute, or mounted filesystem paths to inspect attached knowledge...</rule>",
         "</knowledge_tool_protocol>",
@@ -1487,23 +1487,7 @@ search_knowledge_workspace
   -> get_workspace_file_tree（调试/导航时）
 ```
 
-旧工具仍存在，但定位不同：
-
-```text
-get_document_tree
-get_document_evidence
-get_document_tree_node_detail
-get_document_image
-```
-
-这些是 PageTree 兼容工具，不是 Wiki Workspace-first 的默认问答入口。用户之前看到模型调用：
-
-```text
-get_document_tree(document_name_or_id="bazi-knowledge")
-Error: knowledge document not found or not ready...
-```
-
-根因就是模型走了旧 PageTree 工具，并把“知识库名”当成“文档名”传入。正确动作应该是：
+旧 PageTree 工具不再作为 agent-facing tool 暴露。用户之前看到模型把“知识库名”当成“文档名”传入的错误，根因就是旧工具链路仍可见。当前正确动作应该是：
 
 ```text
 search_knowledge_workspace(
@@ -1982,11 +1966,11 @@ agent 使用边界：
    max_snippets=5
 ```
 
-错误工具调用序列：
+错误调用序列：
 
 ```text
-1. get_document_tree(document_name_or_id="bazi-knowledge")
-   # 错：bazi-knowledge 是 workspace name，不是 document name。
+1. document-level PageTree retrieval with document_name_or_id="bazi-knowledge"
+   # 错：bazi-knowledge 是 workspace name，不是 document name，而且 PageTree retrieval 已不再暴露给 agent。
 
 2. glob(path="/mnt/user-data/agents/prod/bazi-lunming", pattern="**/*.md")
    # 错：绕过 thread binding 和知识库工具协议，还会在大知识库中超时。

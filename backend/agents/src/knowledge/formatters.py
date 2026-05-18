@@ -7,7 +7,6 @@ from src.knowledge.models import (
     DocumentEvidenceResult,
     DocumentImageResult,
     DocumentTreeListing,
-    KnowledgeDocumentRecord,
     NodeDetailResult,
 )
 
@@ -194,24 +193,24 @@ def format_tree_listing_payload(listing: DocumentTreeListing) -> str:
             "options": (
                 [
                     "DO NOT answer from this tree result alone. Your next step should be another knowledge tool call, not visible prose.",
-                    "This root call was collapsed to a top-level overview because expanding descendants would be too large. Pick the most relevant root node_id and call get_document_tree(document_name_or_id=..., node_id=...) to expand that branch.",
+                    "This root call was collapsed to a top-level overview because expanding descendants would be too large. Narrow the workspace query or inspect a smaller source excerpt.",
                     (
                         f"This overview is paginated across root nodes {returned_root_start}-{returned_root_end}. "
-                        f"If the relevant branch is not in this slice, call get_document_tree(document_name_or_id=..., root_cursor={listing.next_root_cursor}) to inspect the next root window."
+                        "If the relevant branch is not in this slice, narrow the workspace query before requesting more evidence."
                         if listing.next_root_cursor is not None
                         else "This overview currently covers the available root-node slice."
                     ),
-                    "For a cited overview answer, call get_document_evidence(document_name_or_id=..., node_ids=...) on the most relevant top-level node_ids from recommended_evidence_node_ids first.",
-                    "If a branch has child_count>0 or has_more_children=true, call get_document_tree(document_name_or_id=..., node_id=...) to inspect that subtree.",
-                    "Once you identify the relevant nodes, call get_document_evidence(document_name_or_id=..., node_ids=...) to read grounded evidence blocks.",
+                    "For a cited answer, inspect the matching wiki page or bounded source evidence before writing visible prose.",
+                    "If a branch has child_count>0 or has_more_children=true, narrow the query to that branch's topic.",
+                    "Once you identify the relevant source path, read bounded source evidence before answering.",
                 ]
                 if collapsed_root_overview
                 else [
                     "DO NOT answer from this tree result alone. Your next step should be another knowledge tool call, not visible prose.",
-                    "Tree windows are capped at max_depth=2. To go deeper, call get_document_tree(document_name_or_id=..., node_id=...) on the most relevant branch.",
-                    "Before any visible answer, call get_document_evidence(document_name_or_id=..., node_ids=...) on the node_ids you plan to describe.",
-                    "If a branch has has_more_children=true, call get_document_tree(document_name_or_id=..., node_id=...) to inspect that subtree.",
-                    "Once you identify the relevant nodes, call get_document_evidence(document_name_or_id=..., node_ids=...) to read grounded evidence blocks.",
+                    "Tree windows are capped at max_depth=2. Narrow the workspace query to inspect a more specific branch.",
+                    "Before any visible answer, inspect the matching wiki page or bounded source evidence.",
+                    "If a branch has has_more_children=true, narrow the query to that branch's topic.",
+                    "Once you identify the relevant source path, read bounded source evidence before answering.",
                 ]
             ),
         },
@@ -347,7 +346,7 @@ def format_document_evidence_payload(result: DocumentEvidenceResult) -> str:
     next_step_options = list(result.next_steps.options)
     if omitted_visual_block_count > 0:
         next_step_options.append(
-            "Inline visual evidence was capped to stay within tool-result budget. If you need an omitted page image, narrow with get_document_tree(document_name_or_id=..., node_id=...) or call get_document_image(document_name_or_id=..., page_number=...)."
+            "Inline visual evidence was capped to stay within tool-result budget. Narrow the workspace query or source excerpt before requesting more visual evidence."
         )
     payload = {
         "document": {

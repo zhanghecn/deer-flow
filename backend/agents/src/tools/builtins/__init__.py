@@ -1,10 +1,6 @@
 from .install_skill_from_registry_tool import install_skill_from_registry
 from .knowledge_tools import (
     get_knowledge_graph,
-    get_document_evidence,
-    get_document_image,
-    get_document_tree,
-    get_document_tree_node_detail,
     get_source_evidence,
     get_wiki_page,
     get_workspace_file_tree,
@@ -28,10 +24,6 @@ __all__ = [
     "get_source_evidence",
     "get_knowledge_graph",
     "get_workspace_file_tree",
-    "get_document_tree",
-    "get_document_evidence",
-    "get_document_tree_node_detail",
-    "get_document_image",
     "push_agent_prod",
     "push_skill_prod",
     "present_file_tool",

@@ -16,7 +16,6 @@ from src.config.runtime_db import get_runtime_db_store
 from src.knowledge import formatters as knowledge_formatters
 from src.knowledge.models import (
     CanonicalSourceMapEntry,
-    DocumentEvidenceResult,
     DocumentImageResult,
     DocumentTreeListing,
     DocumentTreeNode,
@@ -1167,247 +1166,6 @@ class KnowledgeRepository:
             latest_build_job=_job_summary_from_row(row[19:31]),
         )
 
-    def get_document_tree(
-        self,
-        *,
-        document: KnowledgeDocumentRecord,
-        node_id: str | None,
-        max_depth: int,
-        root_cursor: int = 0,
-    ) -> DocumentTreeListing:
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT document_tree
-                FROM knowledge_documents
-                WHERE id = %s::uuid
-                LIMIT 1
-                """,
-                (document.id,),
-            )
-            row = cur.fetchone()
-        structure = row[0] if row is not None else []
-        subtree = _subtree_for_node(structure or [], node_id=node_id)
-        requested_depth = max(1, min(max_depth, 6))
-        effective_depth = requested_depth
-        window_mode = "subtree"
-        if not node_id:
-            effective_depth = _effective_root_tree_depth(subtree, requested_depth=requested_depth)
-            if effective_depth < requested_depth:
-                window_mode = "root_overview"
-        limited_tree = _limit_tree_depth(subtree, depth=effective_depth)
-        total_root_nodes: int | None = None
-        previous_root_cursor: int | None = None
-        next_root_cursor: int | None = None
-        effective_root_cursor = 0
-        if not node_id:
-            total_root_nodes = len(limited_tree)
-            if window_mode == "root_overview":
-                (
-                    limited_tree,
-                    effective_root_cursor,
-                    previous_root_cursor,
-                    next_root_cursor,
-                ) = _slice_root_overview_window(limited_tree, cursor=root_cursor)
-
-        return DocumentTreeListing(
-            document=document,
-            node_id=node_id,
-            requested_max_depth=requested_depth,
-            effective_max_depth=effective_depth,
-            window_mode=window_mode,
-            root_cursor=effective_root_cursor,
-            total_root_nodes=total_root_nodes,
-            previous_root_cursor=previous_root_cursor,
-            next_root_cursor=next_root_cursor,
-            tree=limited_tree,
-        )
-
-    def get_node_detail(
-        self,
-        *,
-        document: KnowledgeDocumentRecord,
-        node_id: str,
-    ) -> KnowledgeNodeRecord | None:
-        query = """
-            SELECT
-                document_id::text,
-                node_id,
-                parent_node_id,
-                node_path,
-                title,
-                depth,
-                child_count,
-                locator_type,
-                page_start,
-                page_end,
-                line_start,
-                line_end,
-                heading_slug,
-                summary,
-                visual_summary,
-                summary_quality,
-                evidence_refs,
-                prefix_summary,
-                node_text
-            FROM knowledge_document_nodes
-            WHERE document_id = %s::uuid
-              AND node_id = %s
-            LIMIT 1
-        """
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute(query, (document.id, node_id))
-            row = cur.fetchone()
-        if row is None:
-            return None
-        return KnowledgeNodeRecord(
-            document_id=row[0],
-            node_id=row[1],
-            parent_node_id=row[2],
-            node_path=row[3],
-            title=row[4],
-            depth=int(row[5]),
-            child_count=int(row[6]),
-            locator_type=row[7],
-            page_start=row[8],
-            page_end=row[9],
-            line_start=row[10],
-            line_end=row[11],
-            heading_slug=row[12],
-            summary=row[13],
-            visual_summary=row[14],
-            summary_quality=row[15] or "fallback",
-            evidence_refs=[KnowledgeEvidenceRef.model_validate(entry) for entry in (row[16] or [])],
-            prefix_summary=row[17],
-            node_text=row[18],
-        )
-
-    def get_node_details(
-        self,
-        *,
-        document: KnowledgeDocumentRecord,
-        node_ids: list[str],
-    ) -> list[KnowledgeNodeRecord]:
-        results: list[KnowledgeNodeRecord] = []
-        for node_id in node_ids:
-            node = self.get_node_detail(document=document, node_id=node_id)
-            if node is not None:
-                results.append(node)
-        return results
-
-    def build_node_detail_result(
-        self,
-        *,
-        user_id: str,
-        thread_id: str,
-        document: KnowledgeDocumentRecord,
-        nodes: list[KnowledgeNodeRecord],
-        requested_node_ids: list[str],
-    ) -> NodeDetailResult:
-        artifact_path = self.materialize_document_preview(user_id=user_id, thread_id=thread_id, document=document)
-        self._validate_node_detail_request(document=document, nodes=nodes)
-
-        items: list[NodeDetailItem] = []
-        total_chars = 0
-        for node in nodes:
-            item = self._build_node_detail_item(
-                thread_id=thread_id,
-                document=document,
-                node=node,
-                artifact_path=artifact_path,
-            )
-            total_chars += len(item.text or "")
-            total_chars += sum(len(chunk.text) for chunk in item.page_chunks)
-            if total_chars > _DETAIL_MAX_TOTAL_CHARS:
-                raise ValueError("Requested node detail is too large. Inspect a narrower subtree with get_document_tree(document_name_or_id=..., node_id=...) and then fetch fewer nodes.")
-            items.append(item)
-
-        requested_pages = _page_range_label_from_nodes(nodes)
-        returned_pages = requested_pages if document.locator_type == "page" else None
-        returned_lines = _line_range_label_from_nodes(nodes) if document.locator_type == "heading" else None
-        next_steps = self._build_node_detail_next_steps(document=document, items=items)
-        return NodeDetailResult(
-            document=document,
-            requested_node_ids=requested_node_ids,
-            items=items,
-            total_pages=document.page_count,
-            requested_pages=requested_pages,
-            returned_pages=returned_pages,
-            returned_lines=returned_lines,
-            next_steps=next_steps,
-        )
-
-    def build_document_evidence_result(
-        self,
-        *,
-        user_id: str,
-        thread_id: str,
-        document: KnowledgeDocumentRecord,
-        nodes: list[KnowledgeNodeRecord],
-        requested_node_ids: list[str],
-    ) -> DocumentEvidenceResult:
-        artifact_path = self.materialize_document_preview(user_id=user_id, thread_id=thread_id, document=document)
-        self._validate_node_detail_request(document=document, nodes=nodes)
-
-        items: list[NodeDetailItem] = []
-        total_chars = 0
-        for node in nodes:
-            item = self._build_node_detail_item(
-                thread_id=thread_id,
-                document=document,
-                node=node,
-                artifact_path=artifact_path,
-            )
-            total_chars += len(item.text or "")
-            total_chars += sum(len(chunk.text) for chunk in item.page_chunks)
-            total_chars += sum(len(block.text or "") for block in item.evidence_blocks)
-            if total_chars > _DETAIL_MAX_TOTAL_CHARS:
-                raise ValueError("Requested document evidence is too large. Inspect a narrower subtree with get_document_tree(document_name_or_id=..., node_id=...) and then request fewer nodes.")
-            items.append(item)
-
-        returned_pages = _page_range_label_from_nodes(nodes) if document.locator_type == "page" else None
-        returned_lines = _line_range_label_from_nodes(nodes) if document.locator_type == "heading" else None
-        next_steps = self._build_document_evidence_next_steps(document=document, items=items)
-        return DocumentEvidenceResult(
-            document=document,
-            requested_node_ids=requested_node_ids,
-            items=items,
-            total_pages=document.page_count,
-            returned_pages=returned_pages,
-            returned_lines=returned_lines,
-            next_steps=next_steps,
-        )
-
-    def build_document_image_result(
-        self,
-        *,
-        user_id: str,
-        thread_id: str,
-        document: KnowledgeDocumentRecord,
-        page_number: int,
-    ) -> DocumentImageResult:
-        image_path, embedded_image_count = self.materialize_document_page_image(
-            user_id=user_id,
-            thread_id=thread_id,
-            document=document,
-            page_number=page_number,
-        )
-        return DocumentImageResult(
-            document=document,
-            page_number=page_number,
-            image_path=image_path,
-            embedded_image_count=embedded_image_count,
-            next_steps=KnowledgeToolNextSteps(
-                summary=f"Exported a page image for {document.display_name} page {page_number}.",
-                options=[
-                    "Use read_file(file_path=...) when the model supports vision and you need to inspect the page visually.",
-                    "If the answer depends on visual details, do not substitute present_files(image_path) for inspection. Call read_file(file_path=...) first, then answer.",
-                    "Use get_document_evidence(document_name_or_id=..., node_ids=...) to read grounded text and citations for the nearby nodes before answering.",
-                    "Copy citation_markdown from node detail results instead of inventing image citations.",
-                ],
-            ),
-        )
-
     def materialize_document_preview(
         self,
         *,
@@ -2183,14 +1941,14 @@ class KnowledgeRepository:
         image_pages = sum(1 for item in items for chunk in item.page_chunks if chunk.embedded_image_count > 0)
         summary = f"Successfully retrieved content for {len(items)} nodes covering {total_pages} pages." if document.locator_type == "page" else f"Successfully retrieved content for {len(items)} nodes."
         options = [
-            "Use get_document_tree(document_name_or_id=..., node_id=...) to inspect child branches when a node still covers too much content.",
+            "Narrow the workspace query or inspect a smaller source excerpt when a node still covers too much content.",
             "Quote the smallest matching node or page chunk, then copy its citation_markdown exactly.",
         ]
         if document.locator_type == "page":
             options.append("For page-based PDFs, prefer a single page chunk citation when the answer comes from one page.")
         if image_pages > 0:
             options.append("If returned text includes image_paths, treat them as related assets. For PDF figure/chart/diagram/layout questions, prefer the unified evidence flow instead of ad-hoc file inspection.")
-            options.append("For PDF visual questions, prefer get_document_evidence(document_name_or_id=..., node_ids=...) so the answer stays grounded in one evidence bundle.")
+            options.append("For PDF visual questions, keep text, image, and citation evidence in one grounded evidence bundle.")
         return KnowledgeToolNextSteps(summary=summary, options=options)
 
     def _build_document_evidence_next_steps(
@@ -2202,7 +1960,7 @@ class KnowledgeRepository:
         visual_blocks = sum(1 for item in items for block in item.evidence_blocks if block.kind in {"image", "page_image"})
         summary = f"Successfully retrieved evidence for {len(items)} nodes with {visual_blocks} visual blocks." if visual_blocks > 0 else f"Successfully retrieved evidence for {len(items)} nodes."
         options = [
-            "Use get_document_tree(document_name_or_id=..., node_id=...) to inspect child branches when a node still covers too much content.",
+            "Narrow the workspace query or inspect a smaller source excerpt when a node still covers too much content.",
             "Use the returned evidence_blocks as the grounded source of truth for both citations and inline visuals.",
             "When citing, copy citation_markdown exactly as returned.",
         ]

@@ -43,7 +43,7 @@ The following are valid non-model responsibilities:
 - validation and safety checks
   - examples: safe agent-name regex, host-path blocking, path-shape validation
 - tool-state and tool-result inspection
-  - examples: "did this turn already call `get_document_evidence`?"
+  - examples: "did this turn already call a knowledge evidence tool?"
   - "did the current evidence payload include this exact `image_path`?"
 
 These are all syntax-, protocol-, or safety-level responsibilities.

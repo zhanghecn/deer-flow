@@ -171,7 +171,8 @@ def test_build_knowledge_context_prompt_exposes_workspace_protocol(monkeypatch):
     assert "get_wiki_page" in prompt
     assert "get_source_evidence" in prompt
     assert "workspace_id" in prompt
-    assert "get_document_tree or get_document_evidence" in prompt
+    assert "only workspace knowledge tools are available" in prompt
+    assert "get_document_" not in prompt
     assert "Do not use grep, glob, read_file, ls, find, execute" in prompt
     assert "run_command" not in prompt
     assert "<knowledge_thread_bindings>" in prompt
@@ -243,8 +244,8 @@ def test_knowledge_context_middleware_keeps_model_tool_list_stable_for_attached_
         tools=[
             _tool("grep"),
             _tool("read_file"),
-            _tool("get_document_tree"),
-            _tool("get_document_tree_node_detail"),
+            _tool("search_knowledge_workspace"),
+            _tool("get_source_evidence"),
             _tool("present_files"),
         ],
         state={"messages": [HumanMessage(content=user_input)]},
@@ -267,8 +268,8 @@ def test_knowledge_context_middleware_keeps_model_tool_list_stable_for_attached_
     assert seen["tool_names"] == [
         "grep",
         "read_file",
-        "get_document_tree",
-        "get_document_tree_node_detail",
+        "search_knowledge_workspace",
+        "get_source_evidence",
         "present_files",
     ]
 
@@ -291,7 +292,7 @@ def test_knowledge_context_middleware_keeps_raw_tools_for_index_debug_turns(monk
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("grep"), _tool("read_file"), _tool("get_document_tree")],
+        tools=[_tool("grep"), _tool("read_file"), _tool("get_workspace_file_tree")],
         state={"messages": [HumanMessage(content=user_input)]},
         runtime=Runtime(
             context={"thread_id": "thread-1", "original_user_input": user_input},
@@ -309,7 +310,7 @@ def test_knowledge_context_middleware_keeps_raw_tools_for_index_debug_turns(monk
     middleware = KnowledgeContextMiddleware()
     middleware.wrap_model_call(request, handler)
 
-    assert seen["tool_names"] == ["grep", "read_file", "get_document_tree"]
+    assert seen["tool_names"] == ["grep", "read_file", "get_workspace_file_tree"]
 
 
 def test_knowledge_context_middleware_does_not_retry_direct_answer_without_current_turn_evidence(monkeypatch):
@@ -326,7 +327,7 @@ def test_knowledge_context_middleware_does_not_retry_direct_answer_without_curre
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence")],
+        tools=[_tool("search_knowledge_workspace"), _tool("get_source_evidence")],
         state={"messages": [HumanMessage(content=user_input)]},
         runtime=Runtime(
             context={"thread_id": "thread-1", "original_user_input": user_input},
@@ -353,7 +354,7 @@ def test_knowledge_context_middleware_does_not_retry_direct_answer_without_curre
     assert response.result[-1].content == "直接回答，不调用知识库工具。"
 
 
-def test_knowledge_context_middleware_does_not_retry_tree_only_answer_without_current_turn_evidence(monkeypatch):
+def test_knowledge_context_middleware_does_not_retry_search_only_answer_without_current_turn_evidence(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
@@ -367,7 +368,7 @@ def test_knowledge_context_middleware_does_not_retry_tree_only_answer_without_cu
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence")],
+        tools=[_tool("search_knowledge_workspace"), _tool("get_source_evidence")],
         state={
             "messages": [
                 HumanMessage(content=user_input),
@@ -376,18 +377,18 @@ def test_knowledge_context_middleware_does_not_retry_tree_only_answer_without_cu
                     tool_calls=[
                         {
                             "id": "tool-tree",
-                            "name": "get_document_tree",
+                            "name": "search_knowledge_workspace",
                             "args": {
-                                "document_name_or_id": "PRML.pdf",
-                                "max_depth": 2,
+                                "workspace_name_or_id": "PRML",
+                                "query": "Figure 1.1",
                             },
                         }
                     ],
                 ),
                 ToolMessage(
                     tool_call_id="tool-tree",
-                    name="get_document_tree",
-                    content='{"answer_requires_evidence":true,"tree":[{"node_id":"0001","title":"Figure 1.1"}]}',
+                    name="search_knowledge_workspace",
+                    content='{"results":[{"path":"wiki/sources/prml.md","title":"Figure 1.1"}]}',
                 ),
             ]
         },
@@ -436,7 +437,7 @@ def test_knowledge_context_middleware_does_not_retry_evidence_answer_without_vis
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence")],
+        tools=[_tool("search_knowledge_workspace"), _tool("get_source_evidence")],
         state={
             "messages": [
                 HumanMessage(content=user_input),
@@ -445,17 +446,17 @@ def test_knowledge_context_middleware_does_not_retry_evidence_answer_without_vis
                     tool_calls=[
                         {
                             "id": "tool-1",
-                            "name": "get_document_evidence",
+                            "name": "get_source_evidence",
                             "args": {
-                                "document_name_or_id": "PRML.pdf",
-                                "node_ids": "0001",
+                                "workspace_name_or_id": "PRML",
+                                "query": "Figure 1.1",
                             },
                         }
                     ],
                 ),
                 ToolMessage(
                     tool_call_id="tool-1",
-                    name="get_document_evidence",
+                    name="get_source_evidence",
                     content='{"items":[{"node_id":"0001","citation_markdown":"[citation:PRML.pdf p.1](kb://citation?document_name=PRML.pdf&page=1)"}]}',
                 ),
             ]
@@ -504,12 +505,12 @@ def test_knowledge_context_middleware_does_not_retry_grounded_evidence_answer_wi
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("read_file")],
+        tools=[_tool("search_knowledge_workspace"), _tool("get_source_evidence"), _tool("read_file")],
         state={
             "messages": [
                 HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(content=evidence_payload, tool_call_id="call-evidence", name="get_document_evidence"),
+                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_source_evidence", "args": {}}]),
+                ToolMessage(content=evidence_payload, tool_call_id="call-evidence", name="get_source_evidence"),
             ]
         },
         runtime=Runtime(
@@ -563,12 +564,12 @@ def test_knowledge_context_middleware_does_not_retry_inline_asset_without_struct
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("read_file")],
+        tools=[_tool("search_knowledge_workspace"), _tool("get_source_evidence"), _tool("read_file")],
         state={
             "messages": [
                 HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(content=evidence_payload, tool_call_id="call-evidence", name="get_document_evidence"),
+                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_source_evidence", "args": {}}]),
+                ToolMessage(content=evidence_payload, tool_call_id="call-evidence", name="get_source_evidence"),
             ]
         },
         runtime=Runtime(

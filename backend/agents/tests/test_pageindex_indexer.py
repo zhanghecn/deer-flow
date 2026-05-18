@@ -340,7 +340,7 @@ def test_format_node_detail_payload_uses_text_field():
         returned_lines="4-8",
         next_steps=KnowledgeToolNextSteps(
             summary="Successfully retrieved content for 1 nodes.",
-            options=["Use get_document_tree(...) to inspect nearby branches."],
+            options=["Narrow the workspace query to inspect nearby branches."],
         ),
     )
 

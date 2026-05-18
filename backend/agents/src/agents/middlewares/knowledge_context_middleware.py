@@ -74,7 +74,7 @@ def _build_knowledge_protocol_prompt(workspaces: list[KnowledgeWorkspaceRecord])
             "get_source_evidence(..., source_path_or_name=source_path, line_start=..., line_limit=...).</rule>"
         ),
         "  <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>",
-        "  <rule>Do not call get_document_tree or get_document_evidence for the default flow; those are compatibility tools for older PageTree-only agents.</rule>",
+        "  <rule>Do not route attached knowledge through document-level PageTree compatibility flows; only workspace knowledge tools are available.</rule>",
         "  <rule>Do not use grep, glob, read_file, ls, find, execute, or mounted filesystem paths to inspect attached knowledge unless the user explicitly asks to debug storage or indexing.</rule>",
     ]
     if not ready_workspaces:

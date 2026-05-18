@@ -18,7 +18,6 @@ from src.reflection import resolve_variable
 from src.tools.builtins import setup_agent
 from src.tools.tools import (
     AUTHORING_TOOL_REGISTRY,
-    COMPATIBILITY_BUILTIN_TOOLS,
     DEFAULT_BUILTIN_TOOLS,
     DEV_BUILTIN_TOOLS,
     MAIN_AGENT_ONLY_TOOL_NAMES,
@@ -213,7 +212,7 @@ def _append_catalog_item(
 def _iter_builtin_tools() -> Iterable[tuple[BaseTool, dict[str, object]]]:
     yielded: set[str] = set()
 
-    for tool in [*DEFAULT_BUILTIN_TOOLS, *COMPATIBILITY_BUILTIN_TOOLS]:
+    for tool in DEFAULT_BUILTIN_TOOLS:
         if tool.name in yielded:
             continue
         yielded.add(tool.name)
