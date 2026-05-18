@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/service"
@@ -25,6 +26,7 @@ func TestTurnsHandlerStreamsStructuredPrepareRunFailure(t *testing.T) {
 		nil,
 		"",
 		storage.NewFS(t.TempDir()),
+		90*time.Minute,
 	))
 	router.POST("/v1/turns", handler.Create)
 

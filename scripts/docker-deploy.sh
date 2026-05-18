@@ -120,6 +120,7 @@ normalize_existing_env() {
     ensure_env_value "OPENAGENTS_LOG_DIR" "./data/logs"
     ensure_env_value "OPENAGENTS_LOG_MAX_SIZE_MB" "100"
     ensure_env_value "OPENAGENTS_LOG_MAX_BACKUPS" "10"
+    ensure_env_value "OPENAGENTS_PUBLIC_API_LANGGRAPH_TIMEOUT_SECONDS" "5400"
     ensure_env_value "MODEL_GATEWAY_CONTAINER" ""
     ensure_env_value "MODEL_GATEWAY_ALIASES" "model-gateway"
     # Process environment values are one-run overrides for compose and helper

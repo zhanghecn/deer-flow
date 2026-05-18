@@ -22,9 +22,10 @@ def search_knowledge_workspace(
     """Search attached llm-wiki style knowledge workspaces.
 
     This is the default first step for questions over attached knowledge.
-    It searches generated `wiki/**/*.md` pages across the attached workspaces
-    unless workspace_name_or_id narrows the scope. Use exact workspace_id values
-    from <knowledge_attached_workspaces> when available.
+    It searches generated `wiki/**/*.md` pages plus bounded raw-source line
+    evidence across the attached workspaces unless workspace_name_or_id narrows
+    the scope. Use exact workspace_id values from <knowledge_attached_workspaces>
+    when available.
 
     Args:
         query: The natural-language or keyword query to search for.
@@ -73,18 +74,24 @@ def get_source_evidence(
     query: str,
     source_path_or_name: str | None = None,
     max_snippets: int = 5,
+    line_start: int | None = None,
+    line_limit: int = 80,
 ) -> str:
     """Read narrow original-source snippets from a knowledge workspace raw cache.
 
     Use this when a wiki page indicates that the answer needs original extracted
     source text. The tool searches `raw/sources/.cache/**` and returns bounded
-    snippets instead of exposing full raw files to the model.
+    snippets instead of exposing full raw files to the model. When
+    search_knowledge_workspace returns a source_path and line_start, pass those
+    values here with line_limit to read a bounded line-numbered excerpt.
 
     Args:
         workspace_name_or_id: Workspace id or exact workspace name from <knowledge_attached_workspaces>.
         query: Query used to locate snippets inside extracted source text.
         source_path_or_name: Optional raw cache path or filename substring to narrow the source.
         max_snippets: Maximum snippets to return.
+        line_start: Optional 1-based source line to read from when expanding a search hit.
+        line_limit: Maximum number of lines to return when line_start is provided.
     """
     user_id, thread_id = _runtime_identity(runtime)
     return KnowledgeService().get_source_evidence(
@@ -94,6 +101,8 @@ def get_source_evidence(
         query=query,
         source_path_or_name=source_path_or_name,
         max_snippets=max_snippets,
+        line_start=line_start,
+        line_limit=line_limit,
     )
 
 

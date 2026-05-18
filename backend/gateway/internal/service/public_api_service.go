@@ -35,8 +35,6 @@ import (
 
 const publicAPIAssistantID = "lead_agent"
 
-const publicAPILangGraphTimeout = 30 * time.Minute
-
 var errArtifactNotFound = errors.New("artifact not found")
 
 type PublicAPIError struct {
@@ -180,6 +178,7 @@ func NewPublicAPIService(
 	knowledgeRepo publicAPIKnowledgeRepository,
 	langGraphURL string,
 	fs *storage.FS,
+	langGraphTimeout time.Duration,
 ) *PublicAPIService {
 	return &PublicAPIService{
 		modelRepo:      modelRepo,
@@ -192,7 +191,7 @@ func NewPublicAPIService(
 		// knowledge lookups and structured report generation. Keep the gateway's
 		// internal LangGraph hop longer than typical client timeouts so the
 		// runtime, not this relay, owns the execution deadline.
-		httpClient: httpx.NewInternalHTTPClient(publicAPILangGraphTimeout),
+		httpClient: httpx.NewInternalHTTPClient(langGraphTimeout),
 		fs:         fs,
 	}
 }

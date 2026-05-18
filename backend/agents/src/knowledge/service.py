@@ -176,6 +176,8 @@ class KnowledgeService:
         query: str,
         source_path_or_name: str | None = None,
         max_snippets: int = 5,
+        line_start: int | None = None,
+        line_limit: int = 80,
     ) -> str:
         workspaces, error = self._resolve_thread_workspaces(
             user_id=user_id,
@@ -192,6 +194,8 @@ class KnowledgeService:
                 query=query,
                 source_path_or_name=source_path_or_name,
                 max_snippets=max_snippets,
+                line_start=line_start,
+                line_limit=line_limit,
             )
         except ValueError as exc:
             return f"Error: {exc}"

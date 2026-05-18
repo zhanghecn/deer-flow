@@ -57,6 +57,14 @@ function createPendingPromise<T>() {
   return new Promise<T>(() => undefined);
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 function makeThreadState(
   overrides: Partial<MockThreadState> = {},
 ): MockThreadState {
@@ -201,6 +209,8 @@ describe("useThreadStream", () => {
   });
 
   it("passes the resolved runtime identity to the LangGraph API client", () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+
     renderHook(
       () =>
         useThreadStream({
@@ -228,6 +238,7 @@ describe("useThreadStream", () => {
   });
 
   it("does not restore a stored model name when the caller clears it explicitly", () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     mockLocalSettingsContext = {
       model_name: "kimi-k2.5-1",
       mode: "pro",
@@ -994,6 +1005,8 @@ describe("useThreadStream", () => {
   });
 
   it("routes task_running custom events through the typed runtime event path", () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+
     const { result } = renderHook(
       () =>
         useThreadStream({
@@ -1693,8 +1706,9 @@ describe("useThreadStream", () => {
     expect(result.current[0].history).toEqual([]);
   });
 
-  it("fetches current thread state while initial history loading is disabled", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+  it("waits for thread registration before fetching current state", async () => {
+    const createDeferred = createDeferredPromise<void>();
+    apiClient.threads.create.mockReturnValue(createDeferred.promise);
 
     renderHook(
       () =>
@@ -1709,6 +1723,13 @@ describe("useThreadStream", () => {
         }),
       { wrapper: createWrapper() },
     );
+
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
+
+    await act(async () => {
+      createDeferred.resolve(undefined);
+      await createDeferred.promise;
+    });
 
     await waitFor(() => {
       expect(apiClient.threads.getState).toHaveBeenCalledWith(
@@ -1907,8 +1928,6 @@ describe("useThreadStream", () => {
   });
 
   it("does not re-fetch thread state on unrelated stream rerenders", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
-
     renderHook(
       () =>
         useThreadStream({
@@ -2001,7 +2020,6 @@ describe("useThreadStream", () => {
       },
     ];
 
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
         title: "Thread",
@@ -2080,7 +2098,6 @@ describe("useThreadStream", () => {
       },
     ];
 
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
         title: "Thread",
@@ -2130,7 +2147,6 @@ describe("useThreadStream", () => {
   });
 
   it("rejoins an owned active run during initial pending-run hydration with full stream modes", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
         title: "Thread",
@@ -2263,7 +2279,6 @@ describe("useThreadStream", () => {
   });
 
   it("suppresses stale run-not-found errors and retries with the hydrated active run id", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     streamState = makeThreadState({
       joinStream: vi
         .fn()
@@ -2333,7 +2348,6 @@ describe("useThreadStream", () => {
   });
 
   it("suppresses stale run-not-found thread errors while rejoining the hydrated active run", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     streamState = makeThreadState({
       joinStream: vi
         .fn()
@@ -2408,7 +2422,6 @@ describe("useThreadStream", () => {
   });
 
   it("recovers the final assistant state when the live finish event is missed", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     const humanMessage: Message = {
       id: "human-1",
       type: "human",
@@ -2482,7 +2495,6 @@ describe("useThreadStream", () => {
   });
 
   it("treats persisted task errors as terminal recovery state even when next is stale", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     const humanMessage: Message = {
       id: "human-1",
       type: "human",
@@ -2541,7 +2553,6 @@ describe("useThreadStream", () => {
   });
 
   it("does not join an active run from another tab without local ownership", async () => {
-    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
         title: "Thread",
@@ -2696,6 +2707,6 @@ describe("useThreadStream", () => {
     const submitOrder = streamState.submit.mock.invocationCallOrder[0];
     expect(ensureOrder).toBeDefined();
     expect(submitOrder).toBeDefined();
-    expect(ensureOrder as number).toBeLessThan(submitOrder as number);
+    expect(ensureOrder!).toBeLessThan(submitOrder!);
   });
 });

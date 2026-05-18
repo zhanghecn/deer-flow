@@ -13,6 +13,7 @@ PageIndex 仍然保留在 ingest/compile 阶段，用于把 PDF / Word / Markdow
 - PDF / Word / Markdown 建库与持久化索引
 - 线程内挂载知识库 + 全局共享知识库管理页
 - Wiki Workspace 文件树、wiki 页面、source evidence、知识图谱
+- Wiki 搜索 + raw source 行号证据的混合召回；精确查询可返回 `source_path`、`line_start`、`line_end` 后再用 bounded source evidence 展开
 - PageTree 树状检索 + unified evidence 展开
 - 聊天回答内知识库引用与图片，点击后直接预览并跳转对应页
 - 全局共享知识库预览、索引 JSON / canonical 原文对照审查
@@ -102,7 +103,7 @@ Python Agents Runtime
 
 - PostgreSQL 保存知识库、文档、线程绑定、构建任务、构建事件等元数据
 - Knowledge Asset Store 保存源文件、预览文件、canonical、index/debug JSON，以及 `workspace/**`
-- Wiki Workspace 是当前 Agent 检索真源；PostgreSQL 中的 PageTree / node text 是 compile/debug/兼容层，不是默认问答入口
+- Wiki Workspace 是当前 Agent 检索真源；`search_knowledge_workspace` 会优先检索生成的 `wiki/**/*.md`，并对 `raw/sources/.cache/**` 做 bounded grep-like 精确召回以覆盖长文档后段内容。PostgreSQL 中的 PageTree / node text 是 compile/debug/兼容层，不是默认问答入口
 - 大型结构化索引仍可作为 JSON / JSONB 或持久化 JSON 文件保存，但原文和工作区文件不进入数据库大对象字段
 - PostgreSQL 还保存知识质量与证据元数据：
   - 文档级 `build_quality`

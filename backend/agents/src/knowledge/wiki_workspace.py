@@ -27,12 +27,20 @@ SNIPPET_CONTEXT = 80
 RRF_K = 60
 MAX_SOURCE_STRUCTURE_NODES = 120
 MAX_SOURCE_TEXT_PREVIEW_CHARS = 80_000
+MAX_SOURCE_LINE_DETAIL_LIMIT = 200
+RAW_SOURCE_SEARCH_FILE_HIT_LIMIT = 3
+RAW_SOURCE_SEARCH_GLOBAL_HIT_LIMIT = 40
+RAW_SOURCE_LINE_CONTEXT = 1
+RAW_SOURCE_PROXIMITY_CHARS = 900
 FILENAME_EXACT_BONUS = 200
 PHRASE_IN_TITLE_BONUS = 50
 PHRASE_IN_CONTENT_PER_OCC = 20
 MAX_PHRASE_OCC_COUNTED = 10
 TITLE_TOKEN_WEIGHT = 5
 CONTENT_TOKEN_WEIGHT = 1
+RAW_SOURCE_PHRASE_BONUS = 320
+RAW_SOURCE_PROXIMITY_BONUS = 260
+RAW_SOURCE_TOKEN_WEIGHT = 18
 TRIM_PUNCT_RE = re.compile(r'^[\s,，。！？、；：""\'\'（）()\-_/\\·~～…]+|[\s,，。！？、；：""\'\'（）()\-_/\\·~～…]+$')
 SPLIT_RE = re.compile(r'[\s,，。！？、；：""\'\'（）()\-_/\\·~～…]+')
 FRONTMATTER_RE = re.compile(r"^---\n(?P<body>[\s\S]*?)\n---", re.MULTILINE)
@@ -450,6 +458,18 @@ def search_workspaces(
             )
             if item is not None:
                 scored.append(item)
+        # Wiki pages are the semantic entry point, but long source pages are
+        # intentionally truncated. A bounded grep-like pass over raw cache files
+        # keeps exact identifiers, legal clauses, case numbers, and four-pillar
+        # queries discoverable without exposing direct filesystem tools.
+        scored.extend(
+            search_raw_source_cache(
+                store=store,
+                workspace=workspace,
+                tokens=effective_tokens,
+                query_phrase=query_phrase,
+            )
+        )
 
     token_sorted = sorted(scored, key=lambda item: (-float(item["raw_score"]), str(item["path"])))
     for index, item in enumerate(token_sorted, start=1):
@@ -519,29 +539,51 @@ def get_source_evidence_payload(
     query: str,
     source_path_or_name: str | None = None,
     max_snippets: int = 5,
+    line_start: int | None = None,
+    line_limit: int = 80,
 ) -> dict[str, Any]:
     query = str(query or "").strip()
-    cache_files = [
-        file
-        for file in store.list_files(workspace, "raw/sources/.cache")
-        if file.path.endswith(".txt") or file.path.endswith(".md")
-    ]
+    cache_files = _raw_cache_files(store=store, workspace=workspace)
     candidate = str(source_path_or_name or "").strip().casefold()
     if candidate:
-        cache_files = [
-            file
-            for file in cache_files
-            if candidate in file.path.casefold() or candidate == PurePosixPath(file.path).name.casefold()
-        ]
+        cache_files = _filter_raw_cache_files(cache_files, candidate)
+    if line_start is not None:
+        return _source_line_detail_payload(
+            store=store,
+            workspace=workspace,
+            query=query,
+            source_path_or_name=source_path_or_name,
+            cache_files=cache_files,
+            line_start=line_start,
+            line_limit=line_limit,
+        )
     tokens = tokenize_query(query) or ([query.casefold()] if query else [])
+    query_phrase = TRIM_PUNCT_RE.sub("", query.casefold())
     snippets: list[dict[str, Any]] = []
     for file in cache_files:
         try:
             content = store.read_text(workspace, file.path)
         except FileNotFoundError:
             continue
-        for snippet in _source_snippets(content=content, query=query, tokens=tokens):
-            snippets.append({"source_path": file.path, "text": snippet})
+        for hit in _score_raw_source_lines(
+            workspace=workspace,
+            source_path=file.path,
+            content=content,
+            tokens=tokens,
+            query_phrase=query_phrase,
+        ):
+            snippets.append(
+                {
+                    "source_path": file.path,
+                    "source_page_path": hit["source_page_path"],
+                    "line_start": hit["line_start"],
+                    "line_end": hit["line_end"],
+                    "match_line": hit["match_line"],
+                    "match_kind": hit["match_kind"],
+                    "matched_tokens": hit["matched_tokens"],
+                    "text": hit["snippet"],
+                }
+            )
             if len(snippets) >= max(1, min(max_snippets, 12)):
                 break
         if len(snippets) >= max(1, min(max_snippets, 12)):
@@ -550,9 +592,11 @@ def get_source_evidence_payload(
         "workspace": _workspace_payload(workspace),
         "query": query,
         "source_path_or_name": source_path_or_name,
+        "match_found": bool(snippets),
         "snippets": snippets,
         "next_steps": [
-            "Use these snippets as original-source evidence, then cite the source_path and related wiki page path.",
+            "Use these snippets as original-source evidence, then cite the source_path, line_start/line_end, and related wiki page path.",
+            "When a search result already includes line_start, call get_source_evidence(..., source_path_or_name=source_path, line_start=..., line_limit=...) for a larger bounded excerpt.",
         ],
     }
 
@@ -633,6 +677,133 @@ def score_wiki_page(
         "raw_score": score,
         "images": _extract_image_refs(content),
     }
+
+
+def search_raw_source_cache(
+    *,
+    store: KnowledgeWorkspaceStore,
+    workspace: KnowledgeWorkspaceRecord,
+    tokens: list[str],
+    query_phrase: str,
+) -> list[dict[str, Any]]:
+    raw_hits: list[dict[str, Any]] = []
+    if not query_phrase and not tokens:
+        return raw_hits
+    for file in _raw_cache_files(store=store, workspace=workspace):
+        try:
+            content = store.read_text(workspace, file.path)
+        except FileNotFoundError:
+            continue
+        file_hits = _score_raw_source_lines(
+            workspace=workspace,
+            source_path=file.path,
+            content=content,
+            tokens=tokens,
+            query_phrase=query_phrase,
+        )
+        raw_hits.extend(file_hits[:RAW_SOURCE_SEARCH_FILE_HIT_LIMIT])
+        # Scan every attached raw cache before applying the global cap. Large
+        # multi-document workspaces are commonly ordered by upload/import time;
+        # stopping after the first N hits lets earlier noisy files hide later
+        # exact or high-similarity evidence.
+    raw_hits.sort(
+        key=lambda item: (-float(item["raw_score"]), str(item["source_path"]), int(item["line_start"]))
+    )
+    return raw_hits[:RAW_SOURCE_SEARCH_GLOBAL_HIT_LIMIT]
+
+
+def _score_raw_source_lines(
+    *,
+    workspace: KnowledgeWorkspaceRecord,
+    source_path: str,
+    content: str,
+    tokens: list[str],
+    query_phrase: str,
+) -> list[dict[str, Any]]:
+    hits: list[dict[str, Any]] = []
+    lines = content.splitlines()
+    source_page_path = _source_page_path_for_raw_cache(source_path)
+    for index, line in enumerate(lines):
+        line_lower = line.casefold()
+        phrase_match = bool(query_phrase and query_phrase in line_lower)
+        matched_tokens = [token for token in tokens if token and token in line_lower]
+        if not phrase_match and not _line_is_proximity_match(
+            line_lower=line_lower,
+            matched_tokens=matched_tokens,
+            tokens=tokens,
+        ):
+            continue
+        score = _raw_source_line_score(
+            line_lower=line_lower,
+            phrase_match=phrase_match,
+            matched_tokens=matched_tokens,
+            token_count=len(tokens),
+        )
+        line_start = max(1, index + 1 - RAW_SOURCE_LINE_CONTEXT)
+        line_end = min(len(lines), index + 1 + RAW_SOURCE_LINE_CONTEXT)
+        hits.append(
+            {
+                "workspace_id": workspace.id,
+                "workspace_name": workspace.name,
+                "path": source_page_path,
+                "title": f"Source evidence: {PurePosixPath(source_path).name}",
+                "type": "source_evidence",
+                "snippet": _format_numbered_lines(lines, line_start, line_end),
+                "title_match": False,
+                "raw_score": score,
+                "images": [],
+                "source_path": source_path,
+                "source_page_path": source_page_path,
+                "line_start": line_start,
+                "line_end": line_end,
+                "match_line": index + 1,
+                "match_kind": "phrase" if phrase_match else "proximity",
+                "matched_tokens": matched_tokens[:12],
+                "next_tool": "get_source_evidence",
+            }
+        )
+    hits.sort(key=lambda item: (-float(item["raw_score"]), int(item["line_start"])))
+    return hits
+
+
+def _line_is_proximity_match(*, line_lower: str, matched_tokens: list[str], tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if len(tokens) <= 2 and len(matched_tokens) < len(tokens):
+        return False
+    required = min(len(tokens), max(2, min(4, math.ceil(len(tokens) * 0.6))))
+    if len(matched_tokens) < required:
+        return False
+    positions = [line_lower.find(token) for token in matched_tokens if token]
+    positions = [position for position in positions if position >= 0]
+    if not positions:
+        return False
+    return max(positions) - min(positions) <= RAW_SOURCE_PROXIMITY_CHARS
+
+
+def _raw_source_line_score(
+    *,
+    line_lower: str,
+    phrase_match: bool,
+    matched_tokens: list[str],
+    token_count: int,
+) -> int:
+    positions = [line_lower.find(token) for token in matched_tokens if token]
+    positions = [position for position in positions if position >= 0]
+    proximity_bonus = 0
+    if positions:
+        proximity_bonus = max(
+            0, RAW_SOURCE_PROXIMITY_BONUS - (max(positions) - min(positions)) // 8
+        )
+    coverage_bonus = 0
+    if token_count:
+        coverage_bonus = int(100 * len(matched_tokens) / token_count)
+    return (
+        (RAW_SOURCE_PHRASE_BONUS if phrase_match else 0)
+        + proximity_bonus
+        + coverage_bonus
+        + len(matched_tokens) * RAW_SOURCE_TOKEN_WEIGHT
+    )
 
 
 def extract_title(content: str, file_name: str) -> str:
@@ -1371,30 +1542,125 @@ def _extract_image_refs(content: str) -> list[dict[str, str]]:
     return refs
 
 
-def _source_snippets(*, content: str, query: str, tokens: list[str]) -> list[str]:
-    lower = content.lower()
-    anchors = [query.lower()] if query else []
-    anchors.extend(token for token in tokens if token not in anchors)
-    offsets: list[int] = []
-    for anchor in anchors:
-        if not anchor:
-            continue
-        pos = lower.find(anchor)
-        while pos >= 0 and len(offsets) < 12:
-            offsets.append(pos)
-            pos = lower.find(anchor, pos + len(anchor))
-        if offsets:
-            break
-    if not offsets:
-        return [content[:1200].replace("\n", " ").strip()] if content.strip() else []
-    snippets = []
-    for offset in offsets[:8]:
-        start = max(0, offset - 450)
-        end = min(len(content), offset + 750)
-        snippet = content[start:end].replace("\n", " ").strip()
-        if start > 0:
-            snippet = "..." + snippet
-        if end < len(content):
-            snippet += "..."
-        snippets.append(snippet)
-    return snippets
+def _raw_cache_files(*, store: KnowledgeWorkspaceStore, workspace: KnowledgeWorkspaceRecord) -> list[WorkspaceFile]:
+    return [
+        file
+        for file in store.list_files(workspace, "raw/sources/.cache")
+        if file.path.endswith(".txt") or file.path.endswith(".md")
+    ]
+
+
+def _filter_raw_cache_files(files: list[WorkspaceFile], candidate: str) -> list[WorkspaceFile]:
+    return [
+        file
+        for file in files
+        if candidate in file.path.casefold() or candidate == PurePosixPath(file.path).name.casefold()
+    ]
+
+
+def _source_page_path_for_raw_cache(source_path: str) -> str:
+    name = PurePosixPath(source_path).name
+    stem = name.rsplit(".", 1)[0]
+    return f"wiki/sources/{stem}.md"
+
+
+def _source_line_detail_payload(
+    *,
+    store: KnowledgeWorkspaceStore,
+    workspace: KnowledgeWorkspaceRecord,
+    query: str,
+    source_path_or_name: str | None,
+    cache_files: list[WorkspaceFile],
+    line_start: int,
+    line_limit: int,
+) -> dict[str, Any]:
+    safe_line_start = max(int(line_start or 1), 1)
+    safe_line_limit = max(1, min(int(line_limit or 80), MAX_SOURCE_LINE_DETAIL_LIMIT))
+    if not source_path_or_name:
+        return _source_line_detail_error_payload(
+            workspace=workspace,
+            query=query,
+            source_path_or_name=source_path_or_name,
+            line_start=safe_line_start,
+            line_limit=safe_line_limit,
+            error="source_path_or_name is required when line_start is provided.",
+        )
+    if not cache_files:
+        return _source_line_detail_error_payload(
+            workspace=workspace,
+            query=query,
+            source_path_or_name=source_path_or_name,
+            line_start=safe_line_start,
+            line_limit=safe_line_limit,
+            error="No matching raw source file was found.",
+        )
+    file = cache_files[0]
+    try:
+        content = store.read_text(workspace, file.path)
+    except FileNotFoundError:
+        return _source_line_detail_error_payload(
+            workspace=workspace,
+            query=query,
+            source_path_or_name=source_path_or_name,
+            line_start=safe_line_start,
+            line_limit=safe_line_limit,
+            error="The matching raw source file no longer exists.",
+        )
+    lines = content.splitlines()
+    if not lines or safe_line_start > len(lines):
+        return _source_line_detail_error_payload(
+            workspace=workspace,
+            query=query,
+            source_path_or_name=source_path_or_name,
+            line_start=safe_line_start,
+            line_limit=safe_line_limit,
+            error="Requested line_start is outside the source file.",
+        )
+    line_end = min(len(lines), safe_line_start + safe_line_limit - 1)
+    return {
+        "workspace": _workspace_payload(workspace),
+        "query": query,
+        "source_path_or_name": source_path_or_name,
+        "line_start": safe_line_start,
+        "line_limit": safe_line_limit,
+        "match_found": True,
+        "snippets": [
+            {
+                "source_path": file.path,
+                "source_page_path": _source_page_path_for_raw_cache(file.path),
+                "line_start": safe_line_start,
+                "line_end": line_end,
+                "text": _format_numbered_lines(lines, safe_line_start, line_end),
+            }
+        ],
+        "next_steps": [
+            "Use this bounded line excerpt as original-source evidence and cite source_path plus line_start/line_end.",
+        ],
+    }
+
+
+def _source_line_detail_error_payload(
+    *,
+    workspace: KnowledgeWorkspaceRecord,
+    query: str,
+    source_path_or_name: str | None,
+    line_start: int,
+    line_limit: int,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "workspace": _workspace_payload(workspace),
+        "query": query,
+        "source_path_or_name": source_path_or_name,
+        "line_start": line_start,
+        "line_limit": line_limit,
+        "match_found": False,
+        "snippets": [],
+        "error": error,
+    }
+
+
+def _format_numbered_lines(lines: list[str], line_start: int, line_end: int) -> str:
+    start_index = max(line_start, 1) - 1
+    end_index = min(line_end, len(lines))
+    return "\n".join(f"L{index + 1}: {lines[index]}" for index in range(start_index, end_index)).strip()

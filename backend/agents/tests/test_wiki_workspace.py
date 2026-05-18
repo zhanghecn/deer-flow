@@ -818,7 +818,144 @@ def test_search_and_source_evidence_use_workspace_files(tmp_path, monkeypatch):
         workspace=workspace,
         query="催告后仍未履行",
     )
+    assert evidence["match_found"] is True
+    assert evidence["snippets"][0]["line_start"] == 1
     assert "可以解除合同" in evidence["snippets"][0]["text"]
+
+
+def test_search_returns_raw_source_line_hits_for_long_documents(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    store.write_text(
+        workspace,
+        "wiki/sources/long-cases.md",
+        "---\ntitle: 长案例\ntype: source\nsources:\n  - long-cases.md\n---\n# 长案例\n\n前 80KB 预览没有目标四柱。",
+    )
+    raw_lines = [f"普通段落 {index}" for index in range(1, 140)]
+    raw_lines.extend(
+        [
+            "### 案例 1741：公开人物",
+            "| 八字 | `戊午年 庚申月 丁巳日 甲辰时` |",
+            "分析：子运庚子年触发申子辰会水。",
+        ]
+    )
+    store.write_text(workspace, "raw/sources/.cache/long-cases.txt", "\n".join(raw_lines))
+
+    result = search_workspaces(store=store, workspaces=[workspace], query="戊午 庚申 丁巳 甲辰")
+    source_hits = [item for item in result["results"] if item["type"] == "source_evidence"]
+
+    assert source_hits
+    hit = source_hits[0]
+    assert hit["source_path"] == "raw/sources/.cache/long-cases.txt"
+    assert hit["path"] == "wiki/sources/long-cases.md"
+    assert hit["match_line"] == 141
+    assert hit["line_start"] == 140
+    assert "L141: | 八字 | `戊午年 庚申月 丁巳日 甲辰时` |" in hit["snippet"]
+    assert set(["戊午", "庚申", "丁巳", "甲辰"]).issubset(set(hit["matched_tokens"]))
+
+
+def test_search_raw_source_cache_ranks_late_exact_hits_after_noisy_sources(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    for index in range(20):
+        store.write_text(
+            workspace,
+            f"raw/sources/.cache/noisy-{index:02d}.txt",
+            "\n".join(
+                [
+                    "壬午日元生逢戌月，只有日元相似但月令不同。",
+                    "壬午日元生逢亥月，仍然不是目标月令。",
+                    "壬午日元生逢申月，只能作为弱相似案例。",
+                ]
+            ),
+        )
+    store.write_text(
+        workspace,
+        "raw/sources/.cache/zz-target.txt",
+        "（十二）壬午日元丑月生实例命断巾箱诀言：\n壬午日元丑月生 胜光斗牛论壬命",
+    )
+
+    result = search_workspaces(store=store, workspaces=[workspace], query="壬午日元丑月", limit=3)
+
+    source_hits = [item for item in result["results"] if item["type"] == "source_evidence"]
+    assert source_hits
+    assert source_hits[0]["source_path"] == "raw/sources/.cache/zz-target.txt"
+    assert "壬午日元丑月生" in source_hits[0]["snippet"]
+
+
+def test_get_source_evidence_expands_line_numbered_source_hit(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    store.write_text(
+        workspace,
+        "raw/sources/.cache/long-cases.txt",
+        "\n".join(
+            [
+                "第一行",
+                "### 案例 1741：公开人物",
+                "| 八字 | `戊午年 庚申月 丁巳日 甲辰时` |",
+                "分析：子运庚子年触发申子辰会水。",
+                "结论：交通工具风险。",
+            ]
+        ),
+    )
+
+    detail = get_source_evidence_payload(
+        store=store,
+        workspace=workspace,
+        query="戊午 庚申 丁巳 甲辰",
+        source_path_or_name="raw/sources/.cache/long-cases.txt",
+        line_start=2,
+        line_limit=3,
+    )
+
+    assert detail["match_found"] is True
+    assert detail["snippets"][0]["line_start"] == 2
+    assert detail["snippets"][0]["line_end"] == 4
+    assert "L2: ### 案例 1741：公开人物" in detail["snippets"][0]["text"]
+    assert "L4: 分析：子运庚子年触发申子辰会水。" in detail["snippets"][0]["text"]
+
+
+def test_get_source_evidence_uses_same_proximity_matching_as_search(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    store.write_text(
+        workspace,
+        "raw/sources/.cache/long-cases.txt",
+        "\n".join(
+            [
+                "只出现戊午但不是目标。",
+                "### 案例 1741：公开人物",
+                "| 八字 | `戊午年 庚申月 丁巳日 甲辰时` |",
+                "分析：子运庚子年触发申子辰会水。",
+            ]
+        ),
+    )
+
+    evidence = get_source_evidence_payload(
+        store=store,
+        workspace=workspace,
+        query="戊午 庚申 丁巳 甲辰",
+    )
+
+    assert evidence["match_found"] is True
+    assert evidence["snippets"][0]["match_line"] == 3
+    assert "L3: | 八字 | `戊午年 庚申月 丁巳日 甲辰时` |" in evidence["snippets"][0]["text"]
+
+
+def test_get_source_evidence_does_not_return_source_start_when_query_misses(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    workspace = _workspace()
+    store.write_text(workspace, "raw/sources/.cache/contract.txt", "第一章 解除权。\n第二章 违约责任。")
+
+    evidence = get_source_evidence_payload(
+        store=store,
+        workspace=workspace,
+        query="完全不存在的精确短语",
+    )
+
+    assert evidence["match_found"] is False
+    assert evidence["snippets"] == []
 
 
 def test_graph_uses_wikilinks_and_hides_query_pages(tmp_path, monkeypatch):

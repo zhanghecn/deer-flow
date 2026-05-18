@@ -59,11 +59,20 @@ def _build_knowledge_protocol_prompt(workspaces: list[KnowledgeWorkspaceRecord])
     ready_workspaces = [workspace for workspace in workspaces if workspace.ready_document_count > 0]
     lines = [
         "<knowledge_tool_protocol>",
-        "  <activation_rule>Apply this protocol only when the current turn needs attached knowledge retrieval. The thread's attached workspaces already define the retrieval scope; otherwise ignore this block and continue the normal general-purpose workflow.</activation_rule>",
+        (
+            "  <activation_rule>Apply this protocol only when the current turn needs attached knowledge retrieval. "
+            "The thread's attached workspaces already define the retrieval scope; otherwise ignore this block and "
+            "continue the normal general-purpose workflow.</activation_rule>"
+        ),
         "  <rule>When this protocol is active, use attached knowledge workspace tools as the source of truth.</rule>",
         "  <rule>When this protocol is active, start with search_knowledge_workspace(query=...) unless you already have an exact wiki page path.</rule>",
         "  <rule>When search results identify a relevant page, call get_wiki_page(workspace_name_or_id=..., page_path=...) before answering.</rule>",
-        "  <rule>When the answer needs narrower original-source text, call get_source_evidence(workspace_name_or_id=..., query=..., source_path_or_name=...).</rule>",
+        (
+            "  <rule>When the answer needs narrower original-source text, call "
+            "get_source_evidence(workspace_name_or_id=..., query=..., source_path_or_name=...). "
+            "If search_knowledge_workspace returns source_path plus line_start, expand it with "
+            "get_source_evidence(..., source_path_or_name=source_path, line_start=..., line_limit=...).</rule>"
+        ),
         "  <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>",
         "  <rule>Do not call get_document_tree or get_document_evidence for the default flow; those are compatibility tools for older PageTree-only agents.</rule>",
         "  <rule>Do not use grep, glob, read_file, ls, find, execute, or mounted filesystem paths to inspect attached knowledge unless the user explicitly asks to debug storage or indexing.</rule>",

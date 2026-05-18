@@ -121,6 +121,7 @@ func main() {
 		knowledgeRepo,
 		cfg.Upstream.LangGraphURL,
 		fs,
+		cfg.PublicAPI.LangGraphTimeout(),
 	)
 
 	// Handlers

@@ -3,6 +3,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
+import { ChunkLoadRecoveryBoundary } from "@/components/chunk-load-recovery";
 import { Toaster } from "@/components/ui/sonner";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
 import { SubtasksProvider } from "@/core/tasks/context";
@@ -83,14 +84,14 @@ function PageSuspense({ children }: { children: React.ReactNode }) {
       fallback={
         // Unified loading state — minimal spinner, no decorative noise
         <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+          <div className="text-muted-foreground flex items-center gap-2.5 text-sm">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
             <span>Loading...</span>
           </div>
         </div>
       }
     >
-      {children}
+      <ChunkLoadRecoveryBoundary>{children}</ChunkLoadRecoveryBoundary>
     </Suspense>
   );
 }

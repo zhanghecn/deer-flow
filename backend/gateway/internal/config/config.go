@@ -3,10 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const DefaultPublicAPILangGraphTimeoutSeconds = 5400
 
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`
@@ -16,6 +20,7 @@ type Config struct {
 	Logging    LoggingConfig    `yaml:"logging"`
 	Upstream   UpstreamConfig   `yaml:"upstream"`
 	OnlyOffice OnlyOfficeConfig `yaml:"onlyoffice"`
+	PublicAPI  PublicAPIConfig  `yaml:"public_api"`
 	Proxy      ProxyConfig      `yaml:"proxy"`
 }
 
@@ -65,6 +70,14 @@ type UpstreamConfig struct {
 	LangGraphURL string `yaml:"langgraph_url"`
 }
 
+type PublicAPIConfig struct {
+	LangGraphTimeoutSeconds int `yaml:"langgraph_timeout_seconds"`
+}
+
+func (p PublicAPIConfig) LangGraphTimeout() time.Duration {
+	return time.Duration(p.LangGraphTimeoutSeconds) * time.Second
+}
+
 type OnlyOfficeConfig struct {
 	ServerURL         string `yaml:"server_url"`
 	InternalServerURL string `yaml:"internal_server_url"`
@@ -100,6 +113,9 @@ func Load(path string) (*Config, error) {
 			InternalServerURL: "http://localhost:8082",
 			PublicAppURL:      "http://host.docker.internal:8001",
 		},
+		PublicAPI: PublicAPIConfig{
+			LangGraphTimeoutSeconds: DefaultPublicAPILangGraphTimeoutSeconds,
+		},
 	}
 
 	data, err := os.ReadFile(path)
@@ -115,8 +131,13 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.resolveEnvVars()
-	cfg.applyEnvOverrides()
+	if err := cfg.applyEnvOverrides(); err != nil {
+		return nil, err
+	}
 	cfg.normalizeDerivedConfig()
+	if cfg.PublicAPI.LangGraphTimeoutSeconds <= 0 {
+		return nil, fmt.Errorf("public_api.langgraph_timeout_seconds must be positive")
+	}
 	if cfg.Database.DSN() == "" {
 		return nil, fmt.Errorf("database.uri is required (set DATABASE_URI)")
 	}
@@ -152,7 +173,7 @@ func (c *Config) resolveEnvVars() {
 	}
 }
 
-func (c *Config) applyEnvOverrides() {
+func (c *Config) applyEnvOverrides() error {
 	override := func(envVar string, target *string) {
 		if value := strings.TrimSpace(os.Getenv(envVar)); value != "" {
 			*target = value
@@ -163,6 +184,18 @@ func (c *Config) applyEnvOverrides() {
 	override("ONLYOFFICE_SERVER_URL", &c.OnlyOffice.ServerURL)
 	override("ONLYOFFICE_INTERNAL_SERVER_URL", &c.OnlyOffice.InternalServerURL)
 	override("ONLYOFFICE_PUBLIC_APP_URL", &c.OnlyOffice.PublicAppURL)
+
+	if value := strings.TrimSpace(os.Getenv("OPENAGENTS_PUBLIC_API_LANGGRAPH_TIMEOUT_SECONDS")); value != "" {
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds <= 0 {
+			return fmt.Errorf("OPENAGENTS_PUBLIC_API_LANGGRAPH_TIMEOUT_SECONDS must be a positive integer")
+		}
+		// This timeout covers the gateway -> LangGraph hop for external SDK
+		// turns. It must be longer than expensive domain agents that perform
+		// knowledge search, validation, and artifact packaging in one turn.
+		c.PublicAPI.LangGraphTimeoutSeconds = seconds
+	}
+	return nil
 }
 
 func (c *Config) normalizeDerivedConfig() {

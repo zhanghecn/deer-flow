@@ -1218,6 +1218,7 @@ export function useThreadStream({
   const [historyEnabled, setHistoryEnabled] = useState(
     () => !!threadId && !skipInitialHistory,
   );
+  const [ensuredThreadId, setEnsuredThreadId] = useState<string | null>(null);
   const hasStartedStreamRef = useRef(false);
   const previousThreadIdRef = useRef<string | null | undefined>(threadId);
   const lastErrorMessageRef = useRef<string | null>(null);
@@ -1235,12 +1236,14 @@ export function useThreadStream({
   const hasResolvedModelName =
     typeof resolvedContext.model_name === "string" &&
     resolvedContext.model_name.trim().length > 0;
+  const isThreadRegistrationReady = !threadId || ensuredThreadId === threadId;
+  const canUseThreadHistory = historyEnabled && isThreadRegistrationReady;
   const passthroughThreadHistory = useMemo(
     () =>
-      historyEnabled || !(threadId ?? streamThreadId)
+      canUseThreadHistory || !(threadId ?? streamThreadId)
         ? undefined
         : buildPassthroughThreadHistory<AgentThreadState>(),
-    [historyEnabled, streamThreadId, threadId],
+    [canUseThreadHistory, streamThreadId, threadId],
   );
   const ensureThreadExists = useCallback(
     (targetThreadId: string) => {
@@ -1262,6 +1265,10 @@ export function useThreadStream({
         .then(() => {
           if (ensureRequestedThreadIdRef.current === targetThreadId) {
             ensuredThreadIdRef.current = targetThreadId;
+            // LangGraph can forget in-memory thread registration after a
+            // runtime restart while checkpoints still exist in Postgres. Do
+            // not let history/state reads race ahead of this idempotent create.
+            setEnsuredThreadId(targetThreadId);
           }
         })
         .finally(() => {
@@ -1284,6 +1291,7 @@ export function useThreadStream({
     hasStartedStreamRef.current = false;
     manualHistorySeedRef.current = false;
     previousThreadIdRef.current = threadId;
+    setEnsuredThreadId(null);
     setHistoryEnabled(
       threadId
         ? !(createdThreadDuringCurrentSession || skipInitialHistory)
@@ -1294,12 +1302,14 @@ export function useThreadStream({
       ensureThreadPromiseRef.current = null;
       ensureRequestedThreadIdRef.current = null;
       ensuredThreadIdRef.current = null;
+      setEnsuredThreadId(null);
       setStreamThreadId(null);
       return;
     }
 
     setStreamThreadId(threadId);
     if (createdThreadDuringCurrentSession) {
+      setEnsuredThreadId(threadId);
       return;
     }
 
@@ -1451,11 +1461,12 @@ export function useThreadStream({
     // Manual stop already seeds the latest history snapshot, so suppress the
     // SDK history fetch for that transition to avoid a duplicate history call.
     fetchStateHistory:
-      historyEnabled && !manualHistorySeedRef.current
+      canUseThreadHistory && !manualHistorySeedRef.current
         ? { limit: HISTORY_PAGE_SIZE }
         : false,
     onCreated(meta) {
       setStreamThreadId(meta.thread_id);
+      setEnsuredThreadId(meta.thread_id);
       storeActiveRunId(
         meta.thread_id,
         "run_id" in meta && typeof meta.run_id === "string"
@@ -1649,7 +1660,13 @@ export function useThreadStream({
     const shouldDeferStateHydration =
       deferStateHydrationRef.current && !historyEnabled;
 
-    if (!threadId || !authenticated || !isWindowActive || !isThreadReady) {
+    if (
+      !threadId ||
+      !authenticated ||
+      !isWindowActive ||
+      !isThreadReady ||
+      !isThreadRegistrationReady
+    ) {
       return;
     }
 
@@ -1774,6 +1791,7 @@ export function useThreadStream({
     hasResolvedModelName,
     historyEnabled,
     isThreadReady,
+    isThreadRegistrationReady,
     isWindowActive,
     notifyThreadError,
     thread.isLoading,
@@ -1787,6 +1805,7 @@ export function useThreadStream({
       !authenticated ||
       historyEnabled ||
       !isThreadReady ||
+      !isThreadRegistrationReady ||
       thread.isLoading ||
       !isWindowActive ||
       !hasResolvedModelName
@@ -1873,6 +1892,7 @@ export function useThreadStream({
     hasResolvedModelName,
     historyEnabled,
     isThreadReady,
+    isThreadRegistrationReady,
     isWindowActive,
     thread,
     thread.isLoading,
@@ -2033,7 +2053,7 @@ export function useThreadStream({
   );
 
   const historyContextWindow = useMemo(() => {
-    const historySnapshot = historyEnabled
+    const historySnapshot = canUseThreadHistory
       ? getThreadHistorySnapshot(thread)
       : null;
     if (!historySnapshot) {
@@ -2041,7 +2061,7 @@ export function useThreadStream({
     }
 
     return extractLatestContextWindow(historySnapshot) ?? null;
-  }, [historyEnabled, thread]);
+  }, [canUseThreadHistory, thread]);
 
   const resumeInterrupt = useCallback(
     async (
@@ -2104,12 +2124,12 @@ export function useThreadStream({
     [mergedThread.values, historyContextWindow],
   );
   const liveHistory = useMemo(() => {
-    if (!historyEnabled) {
+    if (!canUseThreadHistory) {
       return [];
     }
 
     return getThreadHistorySnapshot(thread);
-  }, [historyEnabled, thread]);
+  }, [canUseThreadHistory, thread]);
   const stopRun = useCallback(async () => {
     if (stopPromiseRef.current) {
       await stopPromiseRef.current;
@@ -2235,10 +2255,10 @@ export function useThreadStream({
         messages: effectiveMessages,
         interrupt: effectiveInterrupt,
         isLoading: mergedThread.isLoading || pendingRecoveryLoading,
-        history: historyEnabled
+        history: canUseThreadHistory
           ? effectiveHistory
           : (threadOverride?.history ?? []),
-        experimental_branchTree: historyEnabled
+        experimental_branchTree: canUseThreadHistory
           ? (threadOverride?.experimental_branchTree ??
             getExperimentalBranchTree(mergedThread))
           : undefined,
@@ -2249,7 +2269,7 @@ export function useThreadStream({
       effectiveInterrupt,
       effectiveMessages,
       effectiveValues,
-      historyEnabled,
+      canUseThreadHistory,
       mergedThread,
       pendingRecoveryLoading,
       stopRun,

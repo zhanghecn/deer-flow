@@ -31,6 +31,9 @@ func TestLoadUsesGatewayDefaultsForNonSecretURLs(t *testing.T) {
 	if cfg.OnlyOffice.PublicAppURL != "http://host.docker.internal:8001" {
 		t.Fatalf("unexpected default onlyoffice public url: %s", cfg.OnlyOffice.PublicAppURL)
 	}
+	if cfg.PublicAPI.LangGraphTimeoutSeconds != DefaultPublicAPILangGraphTimeoutSeconds {
+		t.Fatalf("unexpected default public api langgraph timeout: %d", cfg.PublicAPI.LangGraphTimeoutSeconds)
+	}
 }
 
 func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
@@ -49,6 +52,7 @@ func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
 	t.Setenv("ONLYOFFICE_SERVER_URL", "/onlyoffice")
 	t.Setenv("ONLYOFFICE_INTERNAL_SERVER_URL", "http://onlyoffice")
 	t.Setenv("ONLYOFFICE_PUBLIC_APP_URL", "http://gateway:8001")
+	t.Setenv("OPENAGENTS_PUBLIC_API_LANGGRAPH_TIMEOUT_SECONDS", "7200")
 
 	cfg, err := Load(configPath)
 	if err != nil {
@@ -69,5 +73,21 @@ func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
 	}
 	if cfg.OnlyOffice.PublicAppURL != "http://gateway:8001" {
 		t.Fatalf("unexpected overridden onlyoffice public url: %s", cfg.OnlyOffice.PublicAppURL)
+	}
+	if cfg.PublicAPI.LangGraphTimeoutSeconds != 7200 {
+		t.Fatalf("unexpected overridden public api langgraph timeout: %d", cfg.PublicAPI.LangGraphTimeoutSeconds)
+	}
+}
+
+func TestLoadRejectsInvalidPublicAPITimeout(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "gateway.yaml")
+	if err := os.WriteFile(configPath, []byte("database:\n  uri: postgres://db\njwt:\n  secret: secret\npublic_api:\n  langgraph_timeout_seconds: 0\n"), 0644); err != nil {
+		t.Fatalf("write gateway config: %v", err)
+	}
+
+	if _, err := Load(configPath); err == nil {
+		t.Fatal("expected invalid public api timeout to fail")
 	}
 }
