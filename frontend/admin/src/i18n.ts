@@ -562,6 +562,7 @@ const ZH_CN_MESSAGES: Record<string, string> = {
   "No payload details captured.": "未采集到载荷详情。",
   "This field is truncated in the stored trace payload.": "该字段在已存储的链路载荷中被截断。",
   "No markdown-like content.": "没有类 Markdown 内容。",
+  "Open artifact": "打开产物",
   "Schema / Arguments": "Schema / 参数",
   "No text content.": "没有文本内容。",
   "Tool Calls": "工具调用",

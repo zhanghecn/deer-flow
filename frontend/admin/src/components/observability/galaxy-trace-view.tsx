@@ -11,6 +11,7 @@ interface GalaxyTraceViewProps {
   runs: TraceRunSummary[];
   allRuns?: TraceRunSummary[];
   rootRunId?: string;
+  threadId?: string | null;
 }
 
 interface PositionedRun extends TraceRunSummary {
@@ -236,6 +237,7 @@ export function GalaxyTraceView({
   runs,
   allRuns = runs,
   rootRunId,
+  threadId,
 }: GalaxyTraceViewProps) {
   const graph = useMemo(() => buildGraph(runs, rootRunId), [runs, rootRunId]);
   const nodeMap = useMemo(
@@ -351,6 +353,7 @@ export function GalaxyTraceView({
         onOpenChange={setIsDialogOpen}
         run={selectedRun}
         runs={allRuns}
+        threadId={threadId}
       />
     </>
   );

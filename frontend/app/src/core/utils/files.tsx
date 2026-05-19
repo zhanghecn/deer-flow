@@ -85,6 +85,7 @@ const extensionMap: Record<string, string> = {
 
   // Config & Data
   json: "json",
+  jsonl: "json",
   jsonc: "jsonc",
   json5: "json5",
   yaml: "yaml",

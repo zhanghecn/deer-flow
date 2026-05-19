@@ -498,10 +498,15 @@ function TraceDetailContent({
                 runs={visibleRuns}
                 allRuns={runs}
                 rootRunId={trace.root_run_id}
+                threadId={trace.thread_id}
               />
             </Suspense>
           ) : (
-            <EventTree runs={visibleRuns} allRuns={runs} />
+            <EventTree
+              runs={visibleRuns}
+              allRuns={runs}
+              threadId={trace.thread_id}
+            />
           )}
         </div>
       </div>

@@ -28,6 +28,146 @@ const CONTENT_KEYS = new Set([
   "description",
 ]);
 
+interface ReadableContext {
+  threadId?: string | null;
+}
+
+function encodeArtifactPath(filepath: string) {
+  return filepath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function normalizeArtifactCandidate(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim().replace(/\\/g, "/");
+  if (!trimmed) {
+    return null;
+  }
+
+  // Admin readability shortens `/mnt/user-data/outputs/foo` to `output/foo`.
+  // Convert that display-only alias back to the gateway's artifact contract so
+  // trace dialogs can link files without leaking host paths or broadening scope.
+  if (trimmed.startsWith("output/")) {
+    return `outputs/${trimmed.slice("output/".length)}`;
+  }
+
+  if (trimmed.startsWith("/mnt/user-data/outputs/")) {
+    return `outputs/${trimmed.slice("/mnt/user-data/outputs/".length)}`;
+  }
+
+  if (trimmed.startsWith("mnt/user-data/outputs/")) {
+    return `outputs/${trimmed.slice("mnt/user-data/outputs/".length)}`;
+  }
+
+  if (trimmed.startsWith("/mnt/user-data/workspace/")) {
+    return `workspace/${trimmed.slice("/mnt/user-data/workspace/".length)}`;
+  }
+
+  if (trimmed.startsWith("mnt/user-data/workspace/")) {
+    return `workspace/${trimmed.slice("mnt/user-data/workspace/".length)}`;
+  }
+
+  // Admin trace payloads capture virtual runtime paths. The gateway artifact
+  // endpoint can resolve outputs/workspace paths for the trace thread, so keep
+  // links scoped to those two safe virtual roots.
+  const linkablePrefixes = ["outputs/", "workspace/"];
+  return linkablePrefixes.some((prefix) => trimmed.startsWith(prefix))
+    ? trimmed
+    : null;
+}
+
+function artifactHref(value: unknown, context?: ReadableContext): string | null {
+  const artifactPath = normalizeArtifactCandidate(value);
+  const threadId = context?.threadId?.trim();
+  if (!artifactPath || !threadId) {
+    return null;
+  }
+  return `/api/threads/${encodeURIComponent(threadId)}/artifacts/${encodeArtifactPath(artifactPath)}`;
+}
+
+function artifactLabel(value: unknown): string {
+  const artifactPath = normalizeArtifactCandidate(value);
+  if (!artifactPath) {
+    return t("Open artifact");
+  }
+  const filename = artifactPath.split("/").filter(Boolean).at(-1);
+  return filename ? `${t("Open artifact")}: ${filename}` : t("Open artifact");
+}
+
+function extractArtifactValues(value: unknown): string[] {
+  const seen = new Set<string>();
+  const artifacts: string[] = [];
+
+  function visit(item: unknown) {
+    const normalized = normalizeArtifactCandidate(item);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      artifacts.push(typeof item === "string" ? item : normalized);
+      return;
+    }
+
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+
+    if (isObject(item)) {
+      Object.values(item).forEach(visit);
+    }
+  }
+
+  visit(value);
+  return artifacts;
+}
+
+function ArtifactLink({
+  value,
+  context,
+}: {
+  value: unknown;
+  context?: ReadableContext;
+}) {
+  const href = artifactHref(value, context);
+  if (!href) {
+    return null;
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex max-w-full rounded border px-2 py-0.5 text-[11px] font-medium text-blue-600 underline-offset-2 hover:underline"
+    >
+      <span className="truncate">{artifactLabel(value)}</span>
+    </a>
+  );
+}
+
+function ArtifactLinks({
+  value,
+  context,
+}: {
+  value: unknown;
+  context?: ReadableContext;
+}) {
+  const artifacts = extractArtifactValues(value);
+  if (!artifacts.length) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {artifacts.map((artifact) => (
+        <ArtifactLink key={artifact} value={artifact} context={context} />
+      ))}
+    </div>
+  );
+}
+
 function renderMarkdown(text: string) {
   return (
     <div
@@ -57,7 +197,13 @@ function TruncationNotice() {
   );
 }
 
-function ScalarTable({ value }: { value: Record<string, unknown> }) {
+function ScalarTable({
+  value,
+  context,
+}: {
+  value: Record<string, unknown>;
+  context?: ReadableContext;
+}) {
   const entries = Object.entries(value).filter(([, item]) => isScalar(item));
   if (!entries.length) return null;
 
@@ -69,6 +215,9 @@ function ScalarTable({ value }: { value: Record<string, unknown> }) {
             {key}
           </p>
           <p className="mt-1 text-sm break-words">{String(item ?? "-")}</p>
+          <div className="mt-2">
+            <ArtifactLink value={item} context={context} />
+          </div>
         </div>
       ))}
     </div>
@@ -106,11 +255,19 @@ function MarkdownBlock({
   );
 }
 
-function ToolCard({ tool }: { tool: Record<string, unknown> }) {
+function ToolCard({
+  tool,
+  context,
+}: {
+  tool: Record<string, unknown>;
+  context?: ReadableContext;
+}) {
   const title = typeof tool.name === "string" ? tool.name : t("tool");
   const subtitle = typeof tool.type === "string" ? tool.type : null;
   const description = tool.description;
   const schema = tool.parameters ?? tool.arguments;
+  const primaryPath =
+    tool.path ?? tool.file_path ?? tool.filepath ?? tool.output_file;
 
   return (
     <div className="rounded-md border bg-background/60 px-3 py-3 space-y-2">
@@ -124,12 +281,14 @@ function ToolCard({ tool }: { tool: Record<string, unknown> }) {
       </div>
 
       {description != null && <MarkdownBlock value={description} />}
+      <ArtifactLink value={primaryPath} context={context} />
 
       {schema != null && (
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             {t("Schema / Arguments")}
           </p>
+          <ArtifactLinks value={schema} context={context} />
           <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 text-[11px] whitespace-pre-wrap break-all">
             {toRawText(normalizeReadableValue(schema))}
           </pre>
@@ -179,7 +338,13 @@ function extractReasoningContent(value: unknown): string | null {
   return parts.join("\n\n");
 }
 
-function MessageCard({ message }: { message: Record<string, unknown> }) {
+function MessageCard({
+  message,
+  context,
+}: {
+  message: Record<string, unknown>;
+  context?: ReadableContext;
+}) {
   const role = typeof message.role === "string" ? message.role : "message";
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   const responseMetadata = isObject(message.response_metadata)
@@ -233,6 +398,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
               <ToolCard
                 key={`${message.id ?? role}-${index}`}
                 tool={isObject(tool) ? tool : { raw: tool }}
+                context={context}
               />
             ))}
           </div>
@@ -244,7 +410,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             {t("Response Metadata")}
           </p>
-          <ScalarTable value={responseMetadata} />
+          <ScalarTable value={responseMetadata} context={context} />
         </div>
       )}
     </div>
@@ -273,16 +439,18 @@ export function RawJsonDetails({
 export function ReadableJsonContent({
   value,
   depth = 0,
+  context,
 }: {
   value: unknown;
   depth?: number;
+  context?: ReadableContext;
 }) {
   const { value: unwrappedValue, truncated } = unwrapLegacyValue(value);
   if (unwrappedValue !== value) {
     return (
       <div className="space-y-2">
         {truncated && <TruncationNotice />}
-        <ReadableJsonContent value={unwrappedValue} depth={depth} />
+        <ReadableJsonContent value={unwrappedValue} depth={depth} context={context} />
       </div>
     );
   }
@@ -298,10 +466,21 @@ export function ReadableJsonContent({
   if (typeof value === "string") {
     const normalizedString = normalizeReadableString(value);
     if (normalizedString !== value) {
-      return <ReadableJsonContent value={normalizedString} depth={depth} />;
+      return (
+        <ReadableJsonContent
+          value={normalizedString}
+          depth={depth}
+          context={context}
+        />
+      );
     }
 
-    return <MarkdownBlock value={value} />;
+    return (
+      <div className="space-y-2">
+        <MarkdownBlock value={value} />
+        <ArtifactLink value={value} context={context} />
+      </div>
+    );
   }
 
   if (Array.isArray(value)) {
@@ -312,7 +491,11 @@ export function ReadableJsonContent({
         <div className="space-y-3">
           {(normalizedItems as Record<string, unknown>[]).map(
             (message, index) => (
-              <MessageCard key={`${message.id ?? index}`} message={message} />
+              <MessageCard
+                key={`${message.id ?? index}`}
+                message={message}
+                context={context}
+              />
             ),
           )}
         </div>
@@ -323,7 +506,7 @@ export function ReadableJsonContent({
       return (
         <div className="space-y-3">
           {(normalizedItems as Record<string, unknown>[]).map((tool, index) => (
-            <ToolCard key={`${tool.name ?? index}`} tool={tool} />
+            <ToolCard key={`${tool.name ?? index}`} tool={tool} context={context} />
           ))}
         </div>
       );
@@ -347,7 +530,7 @@ export function ReadableJsonContent({
             <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
               {t("Item {index}", { index: index + 1 })}
             </p>
-            <ReadableJsonContent value={item} depth={depth + 1} />
+            <ReadableJsonContent value={item} depth={depth + 1} context={context} />
           </div>
         ))}
       </div>
@@ -355,11 +538,11 @@ export function ReadableJsonContent({
   }
 
   if (isMessageLike(value)) {
-    return <MessageCard message={value} />;
+    return <MessageCard message={value} context={context} />;
   }
 
   if (isToolLike(value)) {
-    return <ToolCard tool={value} />;
+    return <ToolCard tool={value} context={context} />;
   }
 
   if (isObject(value)) {
@@ -386,7 +569,7 @@ export function ReadableJsonContent({
           </div>
         )}
 
-        <ScalarTable value={scalarEntries} />
+        <ScalarTable value={scalarEntries} context={context} />
 
         {nestedEntries.length > 0 && depth < 2 && (
           <div className="space-y-2">
@@ -398,7 +581,11 @@ export function ReadableJsonContent({
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   {key}
                 </p>
-                <ReadableJsonContent value={item} depth={depth + 1} />
+                <ReadableJsonContent
+                  value={item}
+                  depth={depth + 1}
+                  context={context}
+                />
               </div>
             ))}
           </div>
@@ -417,7 +604,10 @@ export function ReadableJsonContent({
 
   return (
     <div className="rounded-md border bg-background/60 px-3 py-3 text-sm break-words">
-      {String(value)}
+      <p>{String(value)}</p>
+      <div className="mt-2">
+        <ArtifactLink value={value} context={context} />
+      </div>
     </div>
   );
 }

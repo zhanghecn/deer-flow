@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getUserVisibleRuntimePath } from "./files";
+import { checkCodeFile, getUserVisibleRuntimePath } from "./files";
 
 describe("getUserVisibleRuntimePath", () => {
   it("reduces runtime output paths to their filenames", () => {
@@ -34,5 +34,12 @@ describe("getUserVisibleRuntimePath", () => {
 
   it("keeps non-runtime paths unchanged", () => {
     expect(getUserVisibleRuntimePath("/tmp/demo.txt")).toBe("/tmp/demo.txt");
+  });
+
+  it("previews JSONL artifacts as text data files", () => {
+    expect(checkCodeFile("/mnt/user-data/outputs/bazi/result.jsonl")).toEqual({
+      isCodeFile: true,
+      language: "json",
+    });
   });
 });

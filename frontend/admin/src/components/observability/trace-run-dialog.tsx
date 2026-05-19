@@ -25,6 +25,7 @@ interface TraceRunDialogProps {
   onOpenChange: (open: boolean) => void;
   run: TraceRunSummary | null;
   runs?: TraceRunSummary[];
+  threadId?: string | null;
 }
 
 function metaValue(value: number | string | undefined | null): string {
@@ -73,6 +74,7 @@ export function TraceRunDialog({
   onOpenChange,
   run,
   runs = [],
+  threadId,
 }: TraceRunDialogProps) {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
@@ -250,7 +252,10 @@ export function TraceRunDialog({
                       </p>
                     </summary>
                     <div className="space-y-3 pt-3">
-                      <JsonMarkdownInspector value={section.value} />
+                      <JsonMarkdownInspector
+                        value={section.value}
+                        threadId={threadId}
+                      />
                     </div>
                   </details>
                 ))}

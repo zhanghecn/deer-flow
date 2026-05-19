@@ -12,6 +12,7 @@ import { RawJsonDetails, ReadableJsonContent } from "./readable-json-content";
 
 interface JsonMarkdownInspectorProps {
   value: unknown;
+  threadId?: string | null;
 }
 
 interface JsonNodeProps {
@@ -119,10 +120,12 @@ function FieldExplorer({
   value,
   selected,
   onSelect,
+  threadId,
 }: {
   value: unknown;
   selected: SelectedField | null;
   onSelect: (field: SelectedField) => void;
+  threadId?: string | null;
 }) {
   return (
     <details className="rounded-md border bg-background/40">
@@ -157,7 +160,10 @@ function FieldExplorer({
               <p className="font-mono text-[11px] text-muted-foreground break-all">
                 {selected.path}
               </p>
-              <ReadableJsonContent value={selected.value} />
+              <ReadableJsonContent
+                value={selected.value}
+                context={{ threadId }}
+              />
               <RawJsonDetails value={selected.value} title={t("Raw JSON")} />
             </div>
           )}
@@ -167,7 +173,10 @@ function FieldExplorer({
   );
 }
 
-export function JsonMarkdownInspector({ value }: JsonMarkdownInspectorProps) {
+export function JsonMarkdownInspector({
+  value,
+  threadId,
+}: JsonMarkdownInspectorProps) {
   const initialSelection = useMemo(() => findBestField(value), [value]);
   const [selectedField, setSelectedField] = useState<SelectedField | null>(
     initialSelection,
@@ -180,12 +189,13 @@ export function JsonMarkdownInspector({ value }: JsonMarkdownInspectorProps) {
 
   return (
     <div className="space-y-3">
-      <ReadableJsonContent value={value} />
+      <ReadableJsonContent value={value} context={{ threadId }} />
       {canInspect && (
         <FieldExplorer
           value={value}
           selected={selectedField}
           onSelect={setSelectedField}
+          threadId={threadId}
         />
       )}
     </div>
