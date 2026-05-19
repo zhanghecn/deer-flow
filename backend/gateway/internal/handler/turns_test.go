@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,5 +55,34 @@ func TestTurnsHandlerStreamsStructuredPrepareRunFailure(t *testing.T) {
 	}
 	if !strings.Contains(body, `"retryable":false`) {
 		t.Fatalf("expected retryable=false, got %q", body)
+	}
+}
+
+func TestStreamSSEWithHeartbeatWritesCommentsDuringQuietRun(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/stream", func(c *gin.Context) {
+		err := streamSSEWithHeartbeat(c, 10*time.Millisecond, func(_ context.Context, emit func(string, any) error) error {
+			time.Sleep(35 * time.Millisecond)
+			return emit("done", gin.H{"ok": true})
+		})
+		if err != nil {
+			t.Errorf("streamSSEWithHeartbeat: %v", err)
+		}
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, ": ping\n\n") {
+		t.Fatalf("expected heartbeat comment in SSE body, got %q", body)
+	}
+	if !strings.Contains(body, "event: done") {
+		t.Fatalf("expected final event after heartbeat, got %q", body)
 	}
 }

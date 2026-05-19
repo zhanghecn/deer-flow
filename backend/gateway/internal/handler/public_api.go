@@ -463,6 +463,16 @@ func writeSSE(c *gin.Context, eventName string, payload any) error {
 	return nil
 }
 
+func writeSSEComment(c *gin.Context, comment string) error {
+	if _, err := c.Writer.WriteString(": " + strings.TrimSpace(comment) + "\n\n"); err != nil {
+		return err
+	}
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
+}
+
 func parseQueryInt(raw string, fallback int) int {
 	value, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil {

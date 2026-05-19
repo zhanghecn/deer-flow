@@ -349,6 +349,10 @@ def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
     agent_dir = base_dir / "custom" / "agents" / "dev" / "analyst"
     (agent_dir / "skills" / "data-analysis").mkdir(parents=True)
     (agent_dir / "AGENTS.md").write_text("v1", encoding="utf-8")
+    (agent_dir / "subagents.yaml").write_text(
+        "version: 1\nsubagents:\n  researcher:\n    description: Finds evidence\n    system_prompt: Research only\n",
+        encoding="utf-8",
+    )
     (agent_dir / "config.yaml").write_text(
         "name: analyst\nstatus: dev\nagents_md_path: AGENTS.md\n"
         "skill_refs:\n  - name: data-analysis\n    materialized_path: skills/data-analysis/SKILL.md\n",
@@ -374,8 +378,10 @@ def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
 
     first_agents_md = dict(first_targets)[f"{lead_agent_module._runtime_agent_root('analyst', 'dev')}/AGENTS.md"]
     second_agents_md = dict(second_targets)[f"{lead_agent_module._runtime_agent_root('analyst', 'dev')}/AGENTS.md"]
+    first_subagents = dict(first_targets)[f"{lead_agent_module._runtime_agent_root('analyst', 'dev')}/subagents.yaml"]
     assert first_agents_md == b"v1"
     assert second_agents_md == b"v2"
+    assert b"researcher" in first_subagents
 
 
 def test_seed_runtime_materials_materializes_thread_runtime_before_upload(tmp_path):

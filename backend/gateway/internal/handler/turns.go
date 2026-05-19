@@ -1,13 +1,17 @@
 package handler
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/service"
 )
+
+const turnSSEHeartbeatInterval = 15 * time.Second
 
 type TurnsHandler struct {
 	svc *service.PublicAPIService
@@ -24,25 +28,25 @@ func (h *TurnsHandler) Create(c *gin.Context) {
 	}
 
 	if request.Stream {
-		startSSE(c)
-		if err := h.svc.StreamTurn(
-			c.Request.Context(),
-			buildPublicAPIAuthContext(c),
-			request,
-			rawBody,
-			func(eventName string, payload any) error {
-				return writeSSE(c, eventName, payload)
-			},
-		); err != nil {
-			_ = writeSSE(
-				c,
-				string(model.TurnEventTurnFailed),
-				service.BuildPublicTurnFailureEventFromError(
-					err,
-					model.TurnFailureStagePrepareRun,
-				),
-			)
-		}
+		authContext := buildPublicAPIAuthContext(c)
+		_ = streamSSEWithHeartbeat(c, turnSSEHeartbeatInterval, func(streamCtx context.Context, emit func(eventName string, payload any) error) error {
+			if err := h.svc.StreamTurn(
+				streamCtx,
+				authContext,
+				request,
+				rawBody,
+				emit,
+			); err != nil {
+				return emit(
+					string(model.TurnEventTurnFailed),
+					service.BuildPublicTurnFailureEventFromError(
+						err,
+						model.TurnFailureStagePrepareRun,
+					),
+				)
+			}
+			return nil
+		})
 		return
 	}
 
@@ -57,6 +61,77 @@ func (h *TurnsHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, snapshot)
+}
+
+type sseWriteRequest struct {
+	eventName string
+	payload   any
+	result    chan error
+}
+
+func streamSSEWithHeartbeat(
+	c *gin.Context,
+	heartbeatInterval time.Duration,
+	run func(ctx context.Context, emit func(eventName string, payload any) error) error,
+) error {
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = turnSSEHeartbeatInterval
+	}
+	startSSE(c)
+
+	streamCtx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	writes := make(chan sseWriteRequest)
+	done := make(chan error, 1)
+	emit := func(eventName string, payload any) error {
+		result := make(chan error, 1)
+		request := sseWriteRequest{
+			eventName: eventName,
+			payload:   payload,
+			result:    result,
+		}
+		select {
+		case writes <- request:
+		case <-streamCtx.Done():
+			return streamCtx.Err()
+		}
+		select {
+		case err := <-result:
+			return err
+		case <-streamCtx.Done():
+			return streamCtx.Err()
+		}
+	}
+
+	go func() {
+		done <- run(streamCtx, emit)
+	}()
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case request := <-writes:
+			err := writeSSE(c, request.eventName, request.payload)
+			request.result <- err
+			if err != nil {
+				return err
+			}
+		case err := <-done:
+			return err
+		case <-ticker.C:
+			// Long-running subagents can be quiet for minutes. SSE comments keep
+			// nginx and browser clients from treating a healthy turn as idle.
+			if err := writeSSEComment(c, "ping"); err != nil {
+				return err
+			}
+		case <-streamCtx.Done():
+			if err := streamCtx.Err(); err != nil && err != context.Canceled {
+				return err
+			}
+			return streamCtx.Err()
+		}
+	}
 }
 
 func (h *TurnsHandler) ListRecent(c *gin.Context) {

@@ -8,7 +8,7 @@ from typing import Protocol
 
 import yaml
 
-from src.config.agents_config import resolve_authored_agent_dir
+from src.config.agents_config import SUBAGENTS_FILENAME, resolve_authored_agent_dir
 from src.config.paths import Paths, get_paths
 
 
@@ -88,11 +88,20 @@ def _load_manifest(agent_name: str, status: str, *, paths: Paths) -> _LocalSeedM
     return _LocalSeedManifest(agents_md_path=agents_md_path, skill_refs=skill_refs)
 
 
-def _manifest_relative_paths(manifest: AgentSeedManifest) -> tuple[PurePosixPath, ...]:
+def _manifest_relative_paths(
+    manifest: AgentSeedManifest,
+    *,
+    agent_dir: Path | None = None,
+) -> tuple[PurePosixPath, ...]:
     relative_paths = [
         PurePosixPath("config.yaml"),
         _normalize_relative_path(manifest.agents_md_path, field_name="agents_md_path"),
     ]
+    if agent_dir is not None and (agent_dir / SUBAGENTS_FILENAME).is_file():
+        # `subagents.yaml` is an agent-owned runtime contract like AGENTS.md.
+        # Seeding it lets file tools audit the same subagent definitions that
+        # graph construction already uses from the archive.
+        relative_paths.append(PurePosixPath(SUBAGENTS_FILENAME))
     for index, skill_ref in enumerate(manifest.skill_refs or []):
         materialized_path = getattr(skill_ref, "materialized_path", None)
         skill_name = str(getattr(skill_ref, "name", "") or "").strip()
@@ -148,7 +157,7 @@ def runtime_seed_targets(
     normalized_target_root = target_root.rstrip("/")
 
     targets: list[tuple[str, bytes]] = []
-    for relative_path in _manifest_relative_paths(loaded_manifest):
+    for relative_path in _manifest_relative_paths(loaded_manifest, agent_dir=agent_dir):
         for nested_relative, content in _read_archive_entry(agent_dir, relative_path):
             targets.append((f"{normalized_target_root}/{nested_relative.as_posix()}", content))
     return targets
