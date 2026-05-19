@@ -60,6 +60,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const workspaceSurface = useOptionalWorkspaceSurface();
   const openWorkspaceSurface = workspaceSurface?.openSurface;
   const syncWorkspaceThread = workspaceSurface?.syncThread;
+  const rememberThreadHint = workspaceSurface?.rememberThreadHint;
 
   const select = useCallback(
     (artifact: string, autoSelect = false) => {
@@ -74,8 +75,24 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       if (!autoSelect) {
         setAutoSelect(false);
       }
+      // Direct selector changes are real user navigation, so persist the
+      // selected artifact as the thread preview hint. Without this, the
+      // thread-level rehydration effect can pull the preview back to an older
+      // artifact immediately after the user picks a different file.
+      if (!autoSelect && !artifact.startsWith("write-file:")) {
+        rememberThreadHint?.({
+          surface: "preview",
+          artifactPath: artifact,
+        });
+      }
     },
-    [openWorkspaceSurface, setSidebarOpen, setSelectedArtifact, setAutoSelect],
+    [
+      openWorkspaceSurface,
+      rememberThreadHint,
+      setSidebarOpen,
+      setSelectedArtifact,
+      setAutoSelect,
+    ],
   );
 
   const reveal = useCallback(

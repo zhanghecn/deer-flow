@@ -19,6 +19,20 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectURL), 1_000);
 }
 
+function openURLInNewWindow(url: string) {
+  // Use an anchor as the single open path: Chromium can return null for
+  // window.open(..., "noopener") even when it already opened the tab, which
+  // makes fallback logic either show a false error or open a duplicate tab.
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  anchor.style.display = "none";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 export async function downloadArtifactFile({
   filepath,
   threadId,
@@ -48,19 +62,13 @@ export async function openArtifactInNewWindow({
   preview?: "pdf";
 }) {
   if (!preview && isHtmlArtifact(filepath)) {
-    const openedWindow = window.open(
+    openURLInNewWindow(
       urlOfArtifact({
         filepath,
         threadId,
         isMock,
       }),
-      "_blank",
-      "noopener,noreferrer",
     );
-
-    if (!openedWindow) {
-      throw new Error("Failed to open artifact in a new window");
-    }
     return;
   }
 
@@ -71,12 +79,6 @@ export async function openArtifactInNewWindow({
     preview,
   });
   const objectURL = URL.createObjectURL(blob);
-  const openedWindow = window.open(objectURL, "_blank", "noopener,noreferrer");
-
-  if (!openedWindow) {
-    URL.revokeObjectURL(objectURL);
-    throw new Error("Failed to open artifact in a new window");
-  }
-
+  openURLInNewWindow(objectURL);
   window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
 }

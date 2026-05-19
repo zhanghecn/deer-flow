@@ -229,14 +229,15 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       return;
     }
 
-    const previewArtifact = threadHint.artifact_path;
-    if (selectedArtifact === previewArtifact) {
+    if (selectedArtifact) {
       return;
     }
 
+    const previewArtifact = threadHint.artifact_path;
     // Thread hints are persisted separately from live artifact selection, so a
-    // page reload must rehydrate the selected preview once discovery confirms
-    // the remembered file still belongs to the current thread.
+    // page reload should rehydrate the selected preview only when the live
+    // selector has no user-chosen artifact yet. Once the user switches files in
+    // the dock, the hint must not continuously pull the preview back.
     selectArtifact(previewArtifact, true);
   }, [
     selectArtifact,
