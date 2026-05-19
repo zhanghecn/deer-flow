@@ -1130,6 +1130,7 @@ func (s *PublicAPIService) ListRecentTurns(
 	auth PublicAPIAuthContext,
 	agentName string,
 	sessionID string,
+	threadID string,
 	historyScopeRaw string,
 	limit int,
 ) (*model.TurnListResponse, error) {
@@ -1155,6 +1156,7 @@ func (s *PublicAPIService) ListRecentTurns(
 			Message:    "api token is not allowed to access this agent",
 		}
 	}
+	normalizedThreadID := strings.TrimSpace(threadID)
 	normalizedSessionID, err := normalizePublicAPISessionID(sessionID)
 	if err != nil {
 		return nil, err
@@ -1163,22 +1165,36 @@ func (s *PublicAPIService) ListRecentTurns(
 	if err != nil {
 		return nil, err
 	}
+	if normalizedThreadID != "" {
+		// Workspace URLs carry the runtime thread id, not the SDK-visible
+		// session id. Keep the restore path under the same user, token, agent,
+		// and finished-turn filters as session history so an opaque thread id
+		// cannot bypass the public API authorization boundary.
+		return s.listRecentTurnsByThreadID(
+			ctx,
+			auth,
+			normalizedAgentName,
+			normalizedThreadID,
+			historyScope,
+			limit,
+		)
+	}
 	if normalizedSessionID == "" {
 		return s.listRecentTurnSessions(ctx, auth, normalizedAgentName, historyScope, limit)
 	}
 
 	normalizedLimit := normalizeRecentTurnLimit(limit)
 	tokenID := auth.APITokenID
-	threadID := ""
+	sessionThreadID := ""
 	sessionIDFilter := normalizedSessionID
 	if len(historyScope) == 0 {
-		threadID = publicAPISessionThreadID(auth.APITokenID, normalizedAgentName, normalizedSessionID)
+		sessionThreadID = publicAPISessionThreadID(auth.APITokenID, normalizedAgentName, normalizedSessionID)
 		sessionIDFilter = ""
 	}
 	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
 		APITokenID:   &tokenID,
 		AgentName:    normalizedAgentName,
-		ThreadID:     threadID,
+		ThreadID:     sessionThreadID,
 		SessionID:    sessionIDFilter,
 		HistoryScope: historyScope,
 		Surface:      "turns",
@@ -1201,6 +1217,55 @@ func (s *PublicAPIService) ListRecentTurns(
 		}
 		if strings.TrimSpace(snapshot.SessionID) == "" {
 			snapshot.SessionID = normalizedSessionID
+		}
+		snapshot.HistoryScope = historyScopeFromInvocation(&invocation)
+		items = append(items, model.TurnHistoryItem{
+			TurnSnapshot: snapshot,
+			Input:        extractTurnInputFromRequestJSON(invocation.RequestJSON),
+		})
+	}
+
+	return &model.TurnListResponse{
+		Object: "list",
+		Data:   items,
+	}, nil
+}
+
+func (s *PublicAPIService) listRecentTurnsByThreadID(
+	ctx context.Context,
+	auth PublicAPIAuthContext,
+	agentName string,
+	threadID string,
+	historyScope map[string]string,
+	limit int,
+) (*model.TurnListResponse, error) {
+	normalizedLimit := normalizeRecentTurnLimit(limit)
+	tokenID := auth.APITokenID
+	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
+		APITokenID:   &tokenID,
+		AgentName:    agentName,
+		ThreadID:     threadID,
+		HistoryScope: historyScope,
+		Surface:      "turns",
+		FinishedOnly: true,
+		Limit:        normalizedLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]model.TurnHistoryItem, 0, len(invocations))
+	for _, invocation := range invocations {
+		var snapshot model.TurnSnapshot
+		if err := json.Unmarshal(invocation.ResponseJSON, &snapshot); err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusInternalServerError,
+				Code:       "invalid_turn_snapshot",
+				Message:    "stored turn snapshot is invalid",
+			}
+		}
+		if strings.TrimSpace(snapshot.SessionID) == "" {
+			snapshot.SessionID = sessionIDFromInvocation(&invocation)
 		}
 		snapshot.HistoryScope = historyScopeFromInvocation(&invocation)
 		items = append(items, model.TurnHistoryItem{

@@ -121,9 +121,43 @@ type ChatSettings = {
 
 type ChatTraceDisplayMode = "debug" | "user";
 
+type WorkspaceChatRoute = {
+  agentName: string;
+  threadID: string;
+};
+
 const TRACE_DISPLAY_MODES: ChatTraceDisplayMode[] = ["debug", "user"];
 
 /* ─── Settings helpers ──────────────────────────────────── */
+
+function decodePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function getWorkspaceChatRoute(): WorkspaceChatRoute | null {
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const workspaceIndex = segments.indexOf("workspace");
+  if (workspaceIndex < 0) {
+    return null;
+  }
+  if (
+    segments[workspaceIndex + 1] !== "agents" ||
+    segments[workspaceIndex + 3] !== "chats"
+  ) {
+    return null;
+  }
+
+  const agentName = decodePathSegment(segments[workspaceIndex + 2] ?? "").trim();
+  const threadID = decodePathSegment(segments[workspaceIndex + 4] ?? "").trim();
+  if (!agentName || !threadID) {
+    return null;
+  }
+  return { agentName, threadID };
+}
 
 function normalizeTraceDisplayMode(value?: string): ChatTraceDisplayMode {
   return value?.trim().toLowerCase() === "user" ? "user" : "debug";
@@ -241,10 +275,11 @@ function getDefaultHistoryScopeJSON(): string {
 function getDefaultAgentName(): string | null {
   const params = new URLSearchParams(window.location.search);
   const fromQuery = params.get("agent");
+  const fromWorkspaceRoute = getWorkspaceChatRoute()?.agentName;
   const fromEnv = import.meta.env.VITE_DEMO_DEFAULT_AGENT_NAME as
     | string
     | undefined;
-  return fromQuery?.trim() || fromEnv?.trim() || null;
+  return fromQuery?.trim() || fromWorkspaceRoute || fromEnv?.trim() || null;
 }
 
 function getAgentNameFromQuery(): string | null {
@@ -255,6 +290,8 @@ function getAgentNameFromQuery(): string | null {
 function resolveAgentName(): string | null {
   const fromQuery = getAgentNameFromQuery();
   if (fromQuery) return fromQuery;
+  const fromWorkspaceRoute = getWorkspaceChatRoute()?.agentName;
+  if (fromWorkspaceRoute) return fromWorkspaceRoute;
   const settings = loadSettings();
   if (settings.agentName?.trim()) return settings.agentName.trim();
   return getDefaultAgentName();
@@ -1264,6 +1301,7 @@ export function ChatPage() {
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<ReturnType<typeof createChatSession> | null>(null);
   const sessionKeyRef = useRef("");
+  const workspaceRestoreKeyRef = useRef("");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -1274,7 +1312,7 @@ export function ChatPage() {
   const [baseURIInput, setBaseURIInput] = useState(settings.baseURI);
   const [apiKeyInput, setApiKeyInput] = useState(settings.apiKey);
   const [agentNameInput, setAgentNameInput] = useState(
-    settings.agentName || getDefaultAgentName() || "",
+    getWorkspaceChatRoute()?.agentName || settings.agentName || getDefaultAgentName() || "",
   );
   const [sessionIDInput, setSessionIDInput] = useState(settings.sessionID);
   const [historyScopeInput, setHistoryScopeInput] = useState(
@@ -1339,7 +1377,9 @@ export function ChatPage() {
     if (settingsOpen) {
       setBaseURIInput(settings.baseURI);
       setApiKeyInput(settings.apiKey);
-      setAgentNameInput(settings.agentName || getDefaultAgentName() || "");
+      setAgentNameInput(
+        getWorkspaceChatRoute()?.agentName || settings.agentName || getDefaultAgentName() || "",
+      );
       setSessionIDInput(settings.sessionID);
       setHistoryScopeInput(settings.historyScopeJSON);
     }
@@ -1479,10 +1519,10 @@ export function ChatPage() {
     resolvedBaseURL,
   ]);
 
-  const restoreSessionByID = useCallback(
-    (requestedSessionID: string) => {
-      const sessionID = requestedSessionID.trim();
-      if (!sessionID || !agentName || isStreaming || isRestoringHistory) {
+  const restoreHistoryByID = useCallback(
+    (requestedID: string, mode: "session" | "thread" = "session") => {
+      const restoreID = requestedID.trim();
+      if (!restoreID || !agentName || isStreaming || isRestoringHistory) {
         return;
       }
 
@@ -1497,34 +1537,41 @@ export function ChatPage() {
             baseURL: resolvedBaseURL,
             apiToken: apiKeyInput.trim(),
             agent: agentName,
-            sessionId: sessionID,
+            sessionId: mode === "session" ? restoreID : undefined,
+            threadId: mode === "thread" ? restoreID : undefined,
             historyScope: historyScopeState.scope,
             limit: HISTORY_SESSION_RESTORE_LIMIT,
             signal: abortController.signal,
           });
           const chronologicalTurns = [...recent.data].reverse();
           if (chronologicalTurns.length === 0) {
-            toast.info("这个会话没有可恢复消息");
+            toast.info(
+              mode === "thread" ? "这个线程没有可恢复消息" : "这个会话没有可恢复消息",
+            );
             return;
           }
 
+          const restoredSessionID =
+            chronologicalTurns[chronologicalTurns.length - 1]?.session_id?.trim() ||
+            (mode === "session" ? restoreID : "");
           const session = createChatSession({
             baseURL: resolvedBaseURL,
             apiToken: apiKeyInput.trim(),
             agent: agentName,
-            sessionId: sessionID,
+            sessionId: restoredSessionID || undefined,
             historyScope: historyScopeState.scope,
           });
+          const actualSessionID = session.getSessionId();
           sessionRef.current = session;
           sessionKeyRef.current = buildSessionKey(
             resolvedBaseURL,
             apiKeyInput,
             agentName,
-            sessionID,
+            actualSessionID,
             historyScopeState.key,
           );
-          persistSessionID(sessionID);
-          setRestoreSessionIDInput(sessionID);
+          persistSessionID(actualSessionID);
+          setRestoreSessionIDInput(actualSessionID);
           setMessages(createMessagesFromHistoryItems(chronologicalTurns));
           setAttachments([]);
           setDraft("");
@@ -1556,6 +1603,26 @@ export function ChatPage() {
       resolvedBaseURL,
     ],
   );
+
+  const restoreSessionByID = useCallback(
+    (requestedSessionID: string) => {
+      restoreHistoryByID(requestedSessionID, "session");
+    },
+    [restoreHistoryByID],
+  );
+
+  useEffect(() => {
+    const route = getWorkspaceChatRoute();
+    if (!route || !agentName || !isConfigured) {
+      return;
+    }
+    const restoreKey = `${route.agentName}\n${route.threadID}\n${historyScopeState.key}`;
+    if (workspaceRestoreKeyRef.current === restoreKey) {
+      return;
+    }
+    workspaceRestoreKeyRef.current = restoreKey;
+    restoreHistoryByID(route.threadID, "thread");
+  }, [agentName, historyScopeState.key, isConfigured, restoreHistoryByID]);
 
   const handleRestoreHistory = useCallback(
     (item: PublicAPITurnHistoryItem) => {

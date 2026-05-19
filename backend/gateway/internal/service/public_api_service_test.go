@@ -222,7 +222,7 @@ func TestListRecentTurnsReturnsStoredInputAndUsesTokenFilter(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, "support-cases-http-demo", sessionID, "", 1)
+	}, "support-cases-http-demo", sessionID, "", "", 1)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -253,6 +253,89 @@ func TestListRecentTurnsReturnsStoredInputAndUsesTokenFilter(t *testing.T) {
 	}
 	if !invocationRepo.lastFilter.FinishedOnly {
 		t.Fatal("expected recent turn list to request finished invocations only")
+	}
+}
+
+func TestListRecentTurnsCanRestoreByThreadID(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	threadID := uuid.MustParse("33333333-3333-3333-3333-333333333333").String()
+	sessionID := "browser-session-1"
+	now := time.Now()
+	snapshotBody, err := json.Marshal(model.TurnSnapshot{
+		ID:          "turn_latest",
+		Object:      "turn",
+		Status:      "completed",
+		Agent:       "support-cases-http-demo",
+		SessionID:   sessionID,
+		ThreadID:    threadID,
+		OutputText:  "已恢复 workspace 线程",
+		Usage:       model.TurnUsage{},
+		Events:      []model.TurnEvent{},
+		CreatedAt:   now.Unix(),
+		CompletedAt: now.Unix(),
+	})
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	requestBody, err := json.Marshal(model.TurnCreateRequest{
+		Agent:     "support-cases-http-demo",
+		SessionID: sessionID,
+		Input: model.TurnInput{
+			Text: "workspace 路由恢复",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		listItems: []model.PublicAPIInvocation{
+			{
+				ResponseID:   "turn_latest",
+				Surface:      "turns",
+				APITokenID:   tokenID,
+				UserID:       userID,
+				AgentName:    "support-cases-http-demo",
+				ThreadID:     threadID,
+				RequestJSON:  requestBody,
+				ResponseJSON: snapshotBody,
+				CreatedAt:    now,
+				FinishedAt:   &now,
+			},
+		},
+	}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, "support-cases-http-demo", "", threadID, "", 1)
+	if err != nil {
+		t.Fatalf("ListRecentTurns: %v", err)
+	}
+
+	if len(result.Data) != 1 || result.Data[0].ID != "turn_latest" {
+		t.Fatalf("unexpected thread restore result: %#v", result.Data)
+	}
+	if result.Data[0].SessionID != sessionID {
+		t.Fatalf("expected stored session id %q, got %q", sessionID, result.Data[0].SessionID)
+	}
+	if invocationRepo.lastFilter.APITokenID == nil || *invocationRepo.lastFilter.APITokenID != tokenID {
+		t.Fatalf("expected api token filter, got %#v", invocationRepo.lastFilter.APITokenID)
+	}
+	if invocationRepo.lastFilter.ThreadID != threadID {
+		t.Fatalf("expected exact thread filter, got %q", invocationRepo.lastFilter.ThreadID)
+	}
+	if invocationRepo.lastFilter.SessionID != "" {
+		t.Fatalf("thread restore must not also filter session id, got %q", invocationRepo.lastFilter.SessionID)
+	}
+	if invocationRepo.lastFilter.AgentName != "support-cases-http-demo" {
+		t.Fatalf("expected agent filter, got %q", invocationRepo.lastFilter.AgentName)
+	}
+	if !invocationRepo.lastFilter.FinishedOnly {
+		t.Fatal("expected thread restore to request finished invocations only")
 	}
 }
 
@@ -318,7 +401,7 @@ func TestListRecentTurnsWithoutSessionReturnsSessionSummaries(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, agentName, "", "", 10)
+	}, agentName, "", "", "", 10)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -409,7 +492,7 @@ func TestListRecentTurnsFiltersByHistoryScope(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, agentName, "", `{"tenant_id":" acme "}`, 10)
+	}, agentName, "", "", `{"tenant_id":" acme "}`, 10)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -479,7 +562,7 @@ func TestListRecentTurnsWithScopedSessionUsesSessionFilter(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, agentName, "shared-session", `{"tenant_id":"acme"}`, 50)
+	}, agentName, "shared-session", "", `{"tenant_id":"acme"}`, 50)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -506,7 +589,7 @@ func TestListRecentTurnsNormalizesHistoryLimit(t *testing.T) {
 	_, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, "support-cases-http-demo", "session-default", "", 0)
+	}, "support-cases-http-demo", "session-default", "", "", 0)
 	if err != nil {
 		t.Fatalf("ListRecentTurns default limit: %v", err)
 	}
@@ -517,7 +600,7 @@ func TestListRecentTurnsNormalizesHistoryLimit(t *testing.T) {
 	_, err = svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, "support-cases-http-demo", "session-clamped", "", 999)
+	}, "support-cases-http-demo", "session-clamped", "", "", 999)
 	if err != nil {
 		t.Fatalf("ListRecentTurns max limit: %v", err)
 	}

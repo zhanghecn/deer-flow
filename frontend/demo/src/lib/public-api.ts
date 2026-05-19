@@ -494,6 +494,7 @@ export async function listRecentPublicAPITurns(params: {
   apiToken: string;
   agent: string;
   sessionId?: string;
+  threadId?: string;
   historyScope?: Record<string, string>;
   limit?: number;
   signal?: AbortSignal;
@@ -502,6 +503,9 @@ export async function listRecentPublicAPITurns(params: {
   searchParams.set("agent", params.agent);
   if (params.sessionId?.trim()) {
     searchParams.set("session_id", params.sessionId.trim());
+  }
+  if (params.threadId?.trim()) {
+    searchParams.set("thread_id", params.threadId.trim());
   }
   if (params.historyScope && Object.keys(params.historyScope).length > 0) {
     searchParams.set("history_scope", JSON.stringify(params.historyScope));
