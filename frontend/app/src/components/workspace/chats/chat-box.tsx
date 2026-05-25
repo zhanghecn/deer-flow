@@ -1,11 +1,5 @@
-import { AlertCircleIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +18,6 @@ import {
   mergeVisibleArtifacts,
 } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
-import { useLatestThreadPublicAPIInvocation } from "@/core/public-api/hooks";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
 import { env } from "@/env";
@@ -64,73 +57,6 @@ function getArtifactDiscoveryPollInterval(
     return MEDIUM_ARTIFACT_DISCOVERY_POLL_MS;
   }
   return FAST_ARTIFACT_DISCOVERY_POLL_MS;
-}
-
-function isUnsuccessfulInvocationStatus(status?: string) {
-  const normalizedStatus = status?.trim().toLowerCase();
-  return (
-    normalizedStatus === "failed" ||
-    normalizedStatus === "error" ||
-    normalizedStatus === "canceled" ||
-    normalizedStatus === "cancelled"
-  );
-}
-
-function ThreadExecutionErrorBanner({
-  enabled,
-  threadId,
-}: {
-  enabled: boolean;
-  threadId: string;
-}) {
-  const { t } = useI18n();
-  // Public SDK/API failures are ledger rows, not guaranteed LangGraph messages.
-  // Read the ledger explicitly so a thread with old visible content still shows
-  // the latest external-call failure instead of looking silently successful.
-  const { data: latestInvocation } = useLatestThreadPublicAPIInvocation({
-    threadId,
-    enabled,
-  });
-
-  if (!isUnsuccessfulInvocationStatus(latestInvocation?.status)) {
-    return null;
-  }
-
-  const trimmedError = latestInvocation?.error?.trim();
-  const errorMessage =
-    trimmedError && trimmedError.length > 0
-      ? trimmedError
-      : t.workspace.executionErrorFallback;
-  const details = [
-    latestInvocation?.response_id
-      ? `${t.workspace.executionErrorResponseId}: ${latestInvocation.response_id}`
-      : null,
-    latestInvocation?.trace_id
-      ? `${t.workspace.executionErrorTraceId}: ${latestInvocation.trace_id}`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-14 z-40 flex justify-center px-4">
-      <Alert
-        variant="destructive"
-        className="pointer-events-auto max-w-(--container-width-md) border-destructive/40 bg-background/95 shadow-lg backdrop-blur"
-      >
-        <AlertCircleIcon />
-        <AlertTitle>{t.workspace.executionErrorTitle}</AlertTitle>
-        <AlertDescription>
-          <p className="break-words">{errorMessage}</p>
-          {details.length > 0 && (
-            <div className="text-destructive/75 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-              {details.map((detail) => (
-                <span key={detail}>{detail}</span>
-              ))}
-            </div>
-          )}
-        </AlertDescription>
-      </Alert>
-    </div>
-  );
 }
 
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
@@ -365,7 +291,6 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
         defaultLayout={artifactPanelOpen ? OPEN_MODE : CLOSE_MODE}
       >
         <ResizablePanel className="relative overflow-hidden" id="chat">
-          <ThreadExecutionErrorBanner enabled={!isMock} threadId={threadId} />
           {children}
         </ResizablePanel>
         <ResizableHandle

@@ -324,11 +324,6 @@ export const enUS: Translations = {
     runtimeStatusOpening: "Opening",
     runtimeStatusActive: "Active",
     runtimeStatusFailed: "Failed",
-    executionErrorTitle: "Run did not complete",
-    executionErrorFallback:
-      "The latest SDK/API run for this conversation did not complete successfully. The visible chat content may not be the final result.",
-    executionErrorResponseId: "Response ID",
-    executionErrorTraceId: "Trace ID",
     eventRuntimeOpened: "Runtime opened",
     eventPreviewUpdated: "Preview updated",
     officePreviewDialogDescription:

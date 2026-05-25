@@ -28,17 +28,6 @@ type ThreadOutputArtifactsHookResult = {
   lastUpdatedAt: number;
 };
 
-type LatestInvocationHookResult = {
-  data: {
-    response_id: string;
-    trace_id?: string;
-    status: string;
-    error?: string;
-  } | null;
-  isLoading: boolean;
-  error: null;
-};
-
 function defaultThreadOutputArtifactsResult(
   _args?: ThreadOutputArtifactsHookArgs,
 ): ThreadOutputArtifactsHookResult {
@@ -53,21 +42,11 @@ function defaultThreadOutputArtifactsResult(
 const useThreadOutputArtifactsMock = vi.fn<
   (args?: ThreadOutputArtifactsHookArgs) => ThreadOutputArtifactsHookResult
 >(defaultThreadOutputArtifactsResult);
-const useLatestThreadPublicAPIInvocationMock = vi.fn<
-  (args: { threadId: string; enabled?: boolean }) => LatestInvocationHookResult
->(() => ({ data: null, isLoading: false, error: null }));
 const artifactDetailRenderPaths = vi.hoisted((): string[] => []);
 
 vi.mock("@/core/artifacts/hooks", () => ({
   useThreadOutputArtifacts: (args?: ThreadOutputArtifactsHookArgs) =>
     useThreadOutputArtifactsMock(args),
-}));
-
-vi.mock("@/core/public-api/hooks", () => ({
-  useLatestThreadPublicAPIInvocation: (args: {
-    threadId: string;
-    enabled?: boolean;
-  }) => useLatestThreadPublicAPIInvocationMock(args),
 }));
 
 vi.mock("@/components/workspace/artifacts", async () => {
@@ -167,12 +146,6 @@ describe("ChatBox", () => {
     useThreadOutputArtifactsMock.mockImplementation(
       defaultThreadOutputArtifactsResult,
     );
-    useLatestThreadPublicAPIInvocationMock.mockReset();
-    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    });
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockImplementation(() => ({
@@ -336,80 +309,6 @@ describe("ChatBox", () => {
     );
 
     expect(artifactDetailRenderPaths).not.toContain(previousArtifactPath);
-  });
-
-  it("surfaces failed public API invocations on the thread page", async () => {
-    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
-      data: {
-        response_id: "resp_failed",
-        trace_id: "trace_failed",
-        status: "failed",
-        error: "assistant response text was not found in thread state",
-      },
-      isLoading: false,
-      error: null,
-    });
-    const thread = {
-      messages: [],
-      isLoading: false,
-      values: {
-        artifacts: [],
-        messages: [],
-      },
-    } as unknown as { values: AgentThreadState };
-    const queryClient = createQueryClient();
-
-    render(
-      renderChatBoxShell({
-        queryClient,
-        thread,
-        isMock: false,
-        threadId: "thread-failed",
-      }),
-    );
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Run did not complete");
-    expect(alert).toHaveTextContent(
-      "assistant response text was not found in thread state",
-    );
-    expect(alert).toHaveTextContent("Response ID: resp_failed");
-    expect(alert).toHaveTextContent("Trace ID: trace_failed");
-  });
-
-  it("surfaces canceled public API invocations on the thread page", async () => {
-    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
-      data: {
-        response_id: "resp_canceled",
-        status: "canceled",
-        error: "turn canceled",
-      },
-      isLoading: false,
-      error: null,
-    });
-    const thread = {
-      messages: [],
-      isLoading: false,
-      values: {
-        artifacts: [],
-        messages: [],
-      },
-    } as unknown as { values: AgentThreadState };
-    const queryClient = createQueryClient();
-
-    render(
-      renderChatBoxShell({
-        queryClient,
-        thread,
-        isMock: false,
-        threadId: "thread-canceled",
-      }),
-    );
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Run did not complete");
-    expect(alert).toHaveTextContent("turn canceled");
-    expect(alert).toHaveTextContent("Response ID: resp_canceled");
   });
 
   it("restores a remembered preview selection after thread hydration", async () => {

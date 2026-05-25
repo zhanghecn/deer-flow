@@ -22,6 +22,7 @@ import { useI18n } from "@/core/i18n/hooks";
 import { findAvailableModelName } from "@/core/models";
 import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
+import { useThreadPublicAPIExecutionStatus } from "@/core/public-api/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 import { useThreadRuntime } from "@/core/threads/query-hooks";
@@ -258,6 +259,12 @@ export default function ChatPage() {
       },
     },
   );
+  const visibleExecutionStatus = useThreadPublicAPIExecutionStatus({
+    threadId,
+    enabled: !isMock && !isNewThread && !isPendingRun,
+    liveExecutionStatus: executionStatus,
+    threadLoading: thread.isLoading,
+  });
 
   const handleSendMessage = useCallback(
     async (
@@ -378,7 +385,7 @@ export default function ChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
-                executionStatus={executionStatus}
+                executionStatus={visibleExecutionStatus}
                 paddingBottom={showCenteredComposer ? undefined : paddingBottom}
               />
             </div>
@@ -412,7 +419,7 @@ export default function ChatPage() {
                     autoFocus={showCenteredComposer}
                     status={thread.isLoading ? "streaming" : "ready"}
                     context={runtimeContext}
-                    executionStatus={executionStatus}
+                    executionStatus={visibleExecutionStatus}
                     initialValue={inputInitialValue}
                     contextWindow={
                       showCenteredComposer

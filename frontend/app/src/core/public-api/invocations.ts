@@ -1,5 +1,6 @@
 import { authFetch } from "@/core/auth/fetch";
 import { getBackendBaseURL } from "@/core/config";
+import type { ExecutionStatus } from "@/core/threads";
 
 export type PublicAPIInvocation = {
   id: string;
@@ -63,4 +64,63 @@ export async function getLatestThreadPublicAPIInvocation(
     finishedOnly: true,
   });
   return items[0] ?? null;
+}
+
+export function isUnsuccessfulPublicAPIInvocationStatus(status?: string) {
+  const normalizedStatus = status?.trim().toLowerCase();
+  return (
+    normalizedStatus === "failed" ||
+    normalizedStatus === "error" ||
+    normalizedStatus === "canceled" ||
+    normalizedStatus === "cancelled"
+  );
+}
+
+export function publicAPIInvocationToExecutionStatus(
+  invocation: PublicAPIInvocation | null | undefined,
+): ExecutionStatus | null {
+  if (
+    !invocation ||
+    !isUnsuccessfulPublicAPIInvocationStatus(invocation.status)
+  ) {
+    return null;
+  }
+
+  const startedAt = invocation.created_at || new Date().toISOString();
+  const finishedAt = invocation.finished_at || startedAt;
+  const canceled =
+    invocation.status.trim().toLowerCase() === "canceled" ||
+    invocation.status.trim().toLowerCase() === "cancelled";
+  const details = [
+    invocation.error?.trim() || "SDK/API run did not complete",
+    invocation.response_id ? `Response ID: ${invocation.response_id}` : null,
+    invocation.trace_id ? `Trace ID: ${invocation.trace_id}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  // Public API invocations can finish outside the LangGraph stream callback
+  // path. Convert that durable ledger row into the same execution-status shape
+  // used by the chat timeline so every terminal failure renders in one place.
+  return {
+    event: canceled ? "interrupted" : "failed",
+    phase: "public_api",
+    phase_kind: "run",
+    started_at: startedAt,
+    run_started_at: startedAt,
+    finished_at: finishedAt,
+    error: details.join(" · "),
+    terminal: true,
+  };
+}
+
+export function mergeExecutionStatusWithPublicAPIStatus(
+  liveStatus: ExecutionStatus | null | undefined,
+  publicAPIStatus: ExecutionStatus | null | undefined,
+): ExecutionStatus | null {
+  if (!publicAPIStatus) {
+    return liveStatus ?? null;
+  }
+  if (!liveStatus || liveStatus.event === "completed") {
+    return publicAPIStatus;
+  }
+  return liveStatus;
 }

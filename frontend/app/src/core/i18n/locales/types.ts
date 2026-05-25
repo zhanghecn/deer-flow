@@ -248,10 +248,6 @@ export interface Translations {
     runtimeStatusOpening: string;
     runtimeStatusActive: string;
     runtimeStatusFailed: string;
-    executionErrorTitle: string;
-    executionErrorFallback: string;
-    executionErrorResponseId: string;
-    executionErrorTraceId: string;
     eventRuntimeOpened: string;
     eventPreviewUpdated: string;
     officePreviewDialogDescription: string;
