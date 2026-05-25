@@ -369,12 +369,47 @@ describe("ChatBox", () => {
     );
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Run failed");
+    expect(alert).toHaveTextContent("Run did not complete");
     expect(alert).toHaveTextContent(
       "assistant response text was not found in thread state",
     );
     expect(alert).toHaveTextContent("Response ID: resp_failed");
     expect(alert).toHaveTextContent("Trace ID: trace_failed");
+  });
+
+  it("surfaces canceled public API invocations on the thread page", async () => {
+    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
+      data: {
+        response_id: "resp_canceled",
+        status: "canceled",
+        error: "turn canceled",
+      },
+      isLoading: false,
+      error: null,
+    });
+    const thread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const queryClient = createQueryClient();
+
+    render(
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: false,
+        threadId: "thread-canceled",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Run did not complete");
+    expect(alert).toHaveTextContent("turn canceled");
+    expect(alert).toHaveTextContent("Response ID: resp_canceled");
   });
 
   it("restores a remembered preview selection after thread hydration", async () => {

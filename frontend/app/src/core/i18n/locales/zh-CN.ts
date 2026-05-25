@@ -308,9 +308,9 @@ export const zhCN: Translations = {
     runtimeStatusOpening: "打开中",
     runtimeStatusActive: "运行中",
     runtimeStatusFailed: "失败",
-    executionErrorTitle: "本次运行失败",
+    executionErrorTitle: "本次运行未完成",
     executionErrorFallback:
-      "当前会话最近一次 SDK/API 调用失败，页面里已有内容可能不是最终成功结果。",
+      "当前会话最近一次 SDK/API 调用未成功完成，页面里已有内容可能不是最终结果。",
     executionErrorResponseId: "响应 ID",
     executionErrorTraceId: "Trace ID",
     eventRuntimeOpened: "运行空间已打开",

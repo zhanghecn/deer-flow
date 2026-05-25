@@ -66,9 +66,14 @@ function getArtifactDiscoveryPollInterval(
   return FAST_ARTIFACT_DISCOVERY_POLL_MS;
 }
 
-function isFailedInvocationStatus(status?: string) {
+function isUnsuccessfulInvocationStatus(status?: string) {
   const normalizedStatus = status?.trim().toLowerCase();
-  return normalizedStatus === "failed" || normalizedStatus === "error";
+  return (
+    normalizedStatus === "failed" ||
+    normalizedStatus === "error" ||
+    normalizedStatus === "canceled" ||
+    normalizedStatus === "cancelled"
+  );
 }
 
 function ThreadExecutionErrorBanner({
@@ -87,7 +92,7 @@ function ThreadExecutionErrorBanner({
     enabled,
   });
 
-  if (!isFailedInvocationStatus(latestInvocation?.status)) {
+  if (!isUnsuccessfulInvocationStatus(latestInvocation?.status)) {
     return null;
   }
 
