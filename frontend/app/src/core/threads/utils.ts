@@ -17,6 +17,43 @@ type ThreadPathOptions = {
   isPendingRun?: boolean;
 };
 
+function safeDecodePathSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+export function resolveThreadIdFromChatPath(pathname: string) {
+  const normalizedPathname = pathname.endsWith("/knowledge")
+    ? pathname.slice(0, -"/knowledge".length)
+    : pathname;
+  const segments = normalizedPathname.split("/").filter(Boolean);
+  const chatsIndex = segments.lastIndexOf("chats");
+  if (chatsIndex < 0) {
+    return null;
+  }
+
+  const threadSegment = segments[chatsIndex + 1];
+  if (!threadSegment) {
+    return null;
+  }
+
+  return safeDecodePathSegment(threadSegment);
+}
+
+export function canThreadCallbackNavigateCurrentRoute(
+  pathname: string,
+  expectedThreadId: string,
+) {
+  const routeThreadId = resolveThreadIdFromChatPath(pathname);
+  // Stream callbacks are asynchronous; after a route switch, an old stream must
+  // not rewrite the URL for its previous thread. `/new` is allowed because the
+  // first stream callback is what promotes a draft chat to its real thread id.
+  return routeThreadId === expectedThreadId || routeThreadId === "new";
+}
+
 export function resolveThreadRuntimeBinding(
   binding: ThreadRuntimeBinding | null | undefined,
 ): ResolvedThreadRuntimeBinding {

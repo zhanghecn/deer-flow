@@ -252,7 +252,21 @@ export function BehaviorTab({
                 {text.agentsMdDescription}
               </p>
             </div>
-            <Badge variant="secondary">{text.editableBadge}</Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge variant="secondary">{text.editableBadge}</Badge>
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={buildWorkspaceAgentAuthoringPath({
+                    agentName,
+                    agentStatus,
+                    path: "AGENTS.md",
+                  })}
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                  {text.openWorkspace}
+                </Link>
+              </Button>
+            </div>
           </div>
           <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
             <div>
@@ -261,7 +275,44 @@ export function BehaviorTab({
                 {text.configYamlDescription}
               </p>
             </div>
-            <Badge variant="outline">{text.structuredBadge}</Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge variant="outline">{text.structuredBadge}</Badge>
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={buildWorkspaceAgentAuthoringPath({
+                    agentName,
+                    agentStatus,
+                    path: "config.yaml",
+                  })}
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                  {text.openWorkspace}
+                </Link>
+              </Button>
+            </div>
+          </div>
+          <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">{text.subagentsYaml}</p>
+              <p className="text-muted-foreground text-xs leading-5">
+                {text.subagentsYamlDescription}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge variant="outline">{form.subagents.length}</Badge>
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={buildWorkspaceAgentAuthoringPath({
+                    agentName,
+                    agentStatus,
+                    path: "subagents.yaml",
+                  })}
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                  {text.openWorkspace}
+                </Link>
+              </Button>
+            </div>
           </div>
           <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
             <div>
@@ -270,7 +321,20 @@ export function BehaviorTab({
                 {text.skillsDirectoryDescription}
               </p>
             </div>
-            <Badge variant="outline">{skillNames.length}</Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge variant="outline">{skillNames.length}</Badge>
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={buildWorkspaceAgentAuthoringPath({
+                    agentName,
+                    agentStatus,
+                  })}
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                  {text.openWorkspace}
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
       </SectionCard>

@@ -423,6 +423,8 @@ func main() {
 		open.GET("/models", apiTokenAuth, middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
 		open.POST("/files", fileAgentAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
 		open.GET("/files/:id", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
+		open.GET("/files/:id/:filename", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFileRelatedContent)
+		open.GET("/files/:id/assets/*path", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFileRelatedContent)
 		open.POST("/turns", turnAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
 		open.POST("/turns/:id/cancel", responseAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Cancel)
 		open.GET("/turns/recent", queryAgentAuth, middleware.RequireAPITokenScopes("responses:read"), turnsH.ListRecent)

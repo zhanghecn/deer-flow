@@ -1,5 +1,9 @@
 import type { Message } from "@langchain/langgraph-sdk";
-import { FileIcon, Loader2Icon } from "lucide-react";
+import {
+  FileIcon,
+  Loader2Icon,
+  SquareArrowOutUpRightIcon,
+} from "lucide-react";
 import { memo, useMemo, type ImgHTMLAttributes } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -215,11 +219,11 @@ function MessageContent_({
     if (!Array.isArray(files) || files.length === 0) {
       if (rawContent.includes("<uploaded_files>")) {
         // If the content contains the <uploaded_files> tag, we return the parsed files from the content for backward compatibility.
-        return parseUploadedFiles(rawContent);
+        return normalizeMessageUploadFiles(parseUploadedFiles(rawContent));
       }
       return null;
     }
-    return files as FileInMessage[];
+    return normalizeMessageUploadFiles(files as FileInMessage[]);
   }, [message.additional_kwargs?.files, rawContent]);
 
   const contentToDisplay = useMemo(() => {
@@ -410,6 +414,44 @@ function isImageFile(filename: string): boolean {
   return IMAGE_EXTENSIONS.includes(getFileExt(filename));
 }
 
+function isSafeUploadFilename(filename: string): boolean {
+  const trimmed = filename.trim();
+  return (
+    Boolean(trimmed) &&
+    trimmed !== "." &&
+    trimmed !== ".." &&
+    !trimmed.includes("/") &&
+    !trimmed.includes("\\") &&
+    !trimmed.includes("\0")
+  );
+}
+
+function uploadVirtualPath(filename: string): string | undefined {
+  if (!isSafeUploadFilename(filename)) {
+    return undefined;
+  }
+  return `/mnt/user-data/uploads/${filename.trim()}`;
+}
+
+function normalizeMessageUploadFiles(files: FileInMessage[]): FileInMessage[] {
+  return files.map((file) => {
+    const path =
+      file.path ?? file.virtual_path ?? uploadVirtualPath(file.filename);
+    const markdownVirtualPath =
+      file.markdown_virtual_path ??
+      file.markdown_path ??
+      (file.markdown_file ? uploadVirtualPath(file.markdown_file) : undefined);
+
+    return {
+      ...file,
+      path,
+      virtual_path: file.virtual_path ?? path,
+      markdown_path: file.markdown_path ?? markdownVirtualPath,
+      markdown_virtual_path: markdownVirtualPath,
+    };
+  });
+}
+
 /**
  * Format bytes to human-readable size string
  */
@@ -455,8 +497,10 @@ function RichFileCard({
   threadId: string;
 }) {
   const { t } = useI18n();
+  const { reveal } = useArtifacts();
   const isUploading = file.status === "uploading";
   const isImage = isImageFile(file.filename);
+  const previewPath = file.markdown_virtual_path ?? file.path;
   const { objectUrl, isLoading } = useArtifactObjectUrl({
     filepath: file.path ?? "",
     threadId,
@@ -490,7 +534,7 @@ function RichFileCard({
     );
   }
 
-  if (!file.path) return null;
+  if (!previewPath) return null;
 
   if (isImage) {
     return (
@@ -513,7 +557,14 @@ function RichFileCard({
   }
 
   return (
-    <div className="bg-background border-border/40 flex max-w-50 min-w-30 flex-col gap-1 rounded-lg border p-3 shadow-sm">
+    <button
+      type="button"
+      className="bg-background border-border/40 hover:border-border hover:bg-muted/30 flex max-w-50 min-w-30 cursor-pointer flex-col gap-1 rounded-lg border p-3 text-left shadow-sm transition-colors"
+      onClick={() => {
+        reveal({ filepath: previewPath });
+      }}
+      title={file.filename}
+    >
       <div className="flex items-start gap-2">
         <FileIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
         <span
@@ -522,6 +573,7 @@ function RichFileCard({
         >
           {file.filename}
         </span>
+        <SquareArrowOutUpRightIcon className="text-muted-foreground mt-0.5 size-3 shrink-0 opacity-70" />
       </div>
       <div className="flex items-center justify-between gap-2">
         <Badge
@@ -534,7 +586,7 @@ function RichFileCard({
           {formatBytes(file.size)}
         </span>
       </div>
-    </div>
+    </button>
   );
 }
 

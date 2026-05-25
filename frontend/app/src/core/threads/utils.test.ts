@@ -6,9 +6,11 @@ import {
   buildThreadCompletionNotificationBody,
   buildThreadPath,
   buildThreadRuntimeContext,
+  canThreadCallbackNavigateCurrentRoute,
   didThreadRuntimeSelectionChange,
   pathAfterThreadDeletion,
   pathOfThread,
+  resolveThreadIdFromChatPath,
   resolveThreadRuntimeBinding,
 } from "./utils";
 
@@ -167,6 +169,42 @@ describe("thread runtime utils", () => {
         new URLSearchParams("agent_status=prod&mock=true"),
       ),
     ).toBe("/workspace/chats/thread-1?agent_status=prod&mock=true");
+  });
+
+  it("extracts thread ids from lead and agent chat routes", () => {
+    expect(resolveThreadIdFromChatPath("/workspace/chats/thread-1")).toBe(
+      "thread-1",
+    );
+    expect(
+      resolveThreadIdFromChatPath("/workspace/agents/reviewer/chats/thread-2"),
+    ).toBe("thread-2");
+    expect(
+      resolveThreadIdFromChatPath(
+        "/workspace/agents/%E5%91%BD%E7%90%86/chats/thread-3/knowledge",
+      ),
+    ).toBe("thread-3");
+    expect(resolveThreadIdFromChatPath("/workspace/agents")).toBeNull();
+  });
+
+  it("blocks stale stream callbacks from navigating after a route switch", () => {
+    expect(
+      canThreadCallbackNavigateCurrentRoute(
+        "/workspace/chats/thread-current",
+        "thread-current",
+      ),
+    ).toBe(true);
+    expect(
+      canThreadCallbackNavigateCurrentRoute(
+        "/workspace/chats/new",
+        "draft-thread",
+      ),
+    ).toBe(true);
+    expect(
+      canThreadCallbackNavigateCurrentRoute(
+        "/workspace/chats/thread-current",
+        "thread-previous",
+      ),
+    ).toBe(false);
   });
 
   it("builds a concise completion notification body", () => {

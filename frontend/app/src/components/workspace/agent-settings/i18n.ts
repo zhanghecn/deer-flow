@@ -161,6 +161,8 @@ export type AgentSettingsPageText = {
   agentsMdDescription: string;
   configYaml: string;
   configYamlDescription: string;
+  subagentsYaml: string;
+  subagentsYamlDescription: string;
   skillsDirectory: string;
   skillsDirectoryDescription: string;
   structuredBadge: string;
@@ -395,6 +397,8 @@ const enUS: AgentSettingsPageText = {
   agentsMdDescription: "System prompt and agent instructions",
   configYaml: "config.yaml",
   configYamlDescription: "Structured agent configuration",
+  subagentsYaml: "subagents.yaml",
+  subagentsYamlDescription: "Custom subagent definitions",
   skillsDirectory: "skills/",
   skillsDirectoryDescription: "Copied skill assets",
   structuredBadge: "structured",
@@ -624,6 +628,8 @@ const zhCN: AgentSettingsPageText = {
   agentsMdDescription: "系统提示词和智能体指令",
   configYaml: "config.yaml",
   configYamlDescription: "结构化智能体配置",
+  subagentsYaml: "subagents.yaml",
+  subagentsYamlDescription: "自定义子代理定义",
   skillsDirectory: "skills/",
   skillsDirectoryDescription: "已复制的技能资产",
   structuredBadge: "结构化",

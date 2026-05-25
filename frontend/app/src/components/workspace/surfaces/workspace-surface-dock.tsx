@@ -1,7 +1,6 @@
 import { FilesIcon } from "lucide-react";
 
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { useArtifacts } from "@/components/workspace/artifacts";
 import {
   ArtifactFileDetail,
   ArtifactFileList,
@@ -14,17 +13,22 @@ import { WorkspaceSurfaceEmpty } from "./workspace-surface-empty";
 import { WorkspaceSurfaceTabs } from "./workspace-surface-tabs";
 
 export function WorkspaceSurfaceDock({
+  selectedArtifact,
   threadId,
   visibleArtifacts,
 }: {
+  selectedArtifact: string | null;
   threadId: string;
   visibleArtifacts: string[];
 }) {
   const { t } = useI18n();
-  const { selectedArtifact } = useArtifacts();
   const { dockState, runtimeState, setActiveSurface, setDockOpen } =
     useWorkspaceSurface();
   const activeSurface = dockState.activeSurface;
+  const previewArtifact =
+    selectedArtifact && visibleArtifacts.includes(selectedArtifact)
+      ? selectedArtifact
+      : null;
 
   return (
     <Tabs
@@ -39,10 +43,10 @@ export function WorkspaceSurfaceDock({
         onClose={() => setDockOpen(false)}
       />
       <TabsContent value="preview" className="min-h-0">
-        {selectedArtifact ? (
+        {previewArtifact ? (
           <ArtifactFileDetail
             className="size-full border-0 shadow-none"
-            filepath={selectedArtifact}
+            filepath={previewArtifact}
             threadId={threadId}
           />
         ) : (

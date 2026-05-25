@@ -24,6 +24,7 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 	userDataDir := filepath.Join(baseDir, "users", userID.String(), "threads", threadID, "user-data")
 	outputFile := filepath.Join(userDataDir, "outputs", "index.html")
 	workspaceFile := filepath.Join(userDataDir, "workspace", "report.html")
+	uploadFile := filepath.Join(userDataDir, "uploads", "命主排盘.md")
 
 	if err := os.MkdirAll(filepath.Dir(outputFile), 0o755); err != nil {
 		t.Fatalf("mkdir outputs: %v", err)
@@ -31,11 +32,17 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(workspaceFile), 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(uploadFile), 0o755); err != nil {
+		t.Fatalf("mkdir uploads: %v", err)
+	}
 	if err := os.WriteFile(outputFile, []byte("output-ok"), 0o644); err != nil {
 		t.Fatalf("write output file: %v", err)
 	}
 	if err := os.WriteFile(workspaceFile, []byte("workspace-ok"), 0o644); err != nil {
 		t.Fatalf("write workspace file: %v", err)
+	}
+	if err := os.WriteFile(uploadFile, []byte("# upload-ok"), 0o644); err != nil {
+		t.Fatalf("write upload file: %v", err)
 	}
 
 	handler := NewArtifactsHandler(storage.NewFS(baseDir))
@@ -54,6 +61,11 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 			name: "workspace prefix",
 			url:  "/api/threads/thread-1/artifacts/mnt/user-data/workspace/report.html",
 			want: "workspace-ok",
+		},
+		{
+			name: "uploads prefix",
+			url:  "/api/threads/thread-1/artifacts/mnt/user-data/uploads/%E5%91%BD%E4%B8%BB%E6%8E%92%E7%9B%98.md",
+			want: "# upload-ok",
 		},
 		{
 			name: "url encoded path",
@@ -220,6 +232,11 @@ func TestNormalizeArtifactPath(t *testing.T) {
 			scope: "workspace",
 		},
 		{
+			input: "mnt/user-data/uploads/命主排盘.md",
+			path:  "命主排盘.md",
+			scope: "uploads",
+		},
+		{
 			input: "outputs/index.html",
 			path:  "index.html",
 			scope: "outputs",
@@ -228,6 +245,11 @@ func TestNormalizeArtifactPath(t *testing.T) {
 			input: "workspace/report.html",
 			path:  "report.html",
 			scope: "workspace",
+		},
+		{
+			input: "uploads/命主排盘.md",
+			path:  "命主排盘.md",
+			scope: "uploads",
 		},
 		{
 			input: "raw/path/file.txt",

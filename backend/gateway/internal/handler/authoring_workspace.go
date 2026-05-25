@@ -210,7 +210,7 @@ func (h *AuthoringWorkspaceHandler) SaveAgentDraft(c *gin.Context) {
 		return
 	}
 
-	rootPath, err := h.svc.SaveAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus)
+	rootPath, err := h.svc.SaveAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus, agent.OwnerUserID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return

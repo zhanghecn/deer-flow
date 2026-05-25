@@ -80,10 +80,14 @@ type publicAPINormalizedInput struct {
 }
 
 type publicAPIRuntimeUpload struct {
-	Filename     string
-	Size         int64
-	MimeType     string
-	MarkdownFile string
+	Filename            string
+	Size                int64
+	MimeType            string
+	VirtualPath         string
+	ArtifactURL         string
+	MarkdownFile        string
+	MarkdownVirtualPath string
+	MarkdownArtifactURL string
 }
 
 type publicAPIRunPlan struct {
@@ -148,11 +152,13 @@ type publicAPIInvocationRepository interface {
 	AttachArtifacts(ctx context.Context, artifacts []model.PublicAPIArtifact) error
 	GetByResponseID(ctx context.Context, responseID string, apiTokenID uuid.UUID) (*model.PublicAPIInvocation, error)
 	GetArtifactByFileID(ctx context.Context, fileID string, apiTokenID uuid.UUID) (*model.PublicAPIArtifact, *model.PublicAPIInvocation, error)
+	GetArtifactByVirtualPath(ctx context.Context, invocationID uuid.UUID, virtualPath string, apiTokenID uuid.UUID) (*model.PublicAPIArtifact, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, filter model.PublicAPIInvocationFilter) ([]model.PublicAPIInvocation, error)
 }
 
 type publicAPITraceRepository interface {
 	FindLatestByThreadAndUser(ctx context.Context, threadID string, userID uuid.UUID) (*repository.AgentTraceRecord, error)
+	FinishRunningTrace(ctx context.Context, traceID string, status string, errorMessage *string) error
 }
 
 type publicAPIKnowledgeRepository interface {
@@ -839,19 +845,7 @@ func (s *PublicAPIService) applyTraceUsage(
 	ctx context.Context,
 	plan *publicAPIRunPlan,
 ) error {
-	traceRecord, err := s.lookupLatestTrace(ctx, plan.ThreadID, plan.Auth.UserID)
-	if err != nil {
-		return err
-	}
-	if traceRecord == nil {
-		return nil
-	}
-
-	plan.Invocation.TraceID = &traceRecord.TraceID
-	plan.Invocation.InputTokens = traceRecord.InputTokens
-	plan.Invocation.OutputTokens = traceRecord.OutputTokens
-	plan.Invocation.TotalTokens = traceRecord.TotalTokens
-	return nil
+	return s.syncInvocationTrace(ctx, plan.Invocation, "", "")
 }
 
 func (s *PublicAPIService) finishIncompleteRun(
@@ -1305,6 +1299,108 @@ func (s *PublicAPIService) GetFileContent(
 		}
 	}
 
+	return s.readPublicAPIArtifact(invocation, artifact)
+}
+
+func (s *PublicAPIService) GetFileRelatedContent(
+	ctx context.Context,
+	fileID string,
+	relativePath string,
+	apiTokenID uuid.UUID,
+) (*PublicAPIFileResult, error) {
+	baseArtifact, invocation, err := s.invocationRepo.GetArtifactByFileID(ctx, strings.TrimSpace(fileID), apiTokenID)
+	if err != nil {
+		return nil, err
+	}
+	if baseArtifact == nil || invocation == nil {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+
+	targetVirtualPath, err := relatedArtifactVirtualPath(baseArtifact.VirtualPath, relativePath)
+	if err != nil {
+		return nil, err
+	}
+
+	relatedArtifact, err := s.invocationRepo.GetArtifactByVirtualPath(
+		ctx,
+		invocation.ID,
+		targetVirtualPath,
+		apiTokenID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if relatedArtifact == nil {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+
+	return s.readPublicAPIArtifact(invocation, relatedArtifact)
+}
+
+func relatedArtifactVirtualPath(baseVirtualPath string, relativePath string) (string, error) {
+	cleanBase := path.Clean(strings.TrimSpace(baseVirtualPath))
+	rawRelative := strings.TrimSpace(relativePath)
+	if cleanBase == "." || cleanBase == "/" || rawRelative == "" {
+		return "", &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+
+	// Browser-loaded HTML artifacts may request sibling files with `./...`.
+	// Keep resolution inside the base artifact directory so an output file id
+	// cannot become a general thread filesystem browser.
+	if strings.HasPrefix(rawRelative, "/") || containsParentPathSegment(rawRelative) {
+		return "", &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+
+	cleanRelative := path.Clean(rawRelative)
+	if cleanRelative == "." || cleanRelative == "" {
+		return "", &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+
+	baseDir := path.Dir(cleanBase)
+	target := path.Clean(path.Join(baseDir, cleanRelative))
+	if target == baseDir || !strings.HasPrefix(target, strings.TrimRight(baseDir, "/")+"/") {
+		return "", &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "file_not_found",
+			Message:    "file not found",
+		}
+	}
+	return target, nil
+}
+
+func containsParentPathSegment(value string) bool {
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *PublicAPIService) readPublicAPIArtifact(
+	invocation *model.PublicAPIInvocation,
+	artifact *model.PublicAPIArtifact,
+) (*PublicAPIFileResult, error) {
 	filePath, err := s.resolveArtifactStoragePath(invocation.UserID.String(), invocation.ThreadID, artifact.StorageRef)
 	if err != nil {
 		if errors.Is(err, errArtifactNotFound) {
@@ -1594,13 +1690,23 @@ func (s *PublicAPIService) runAgentTurnStream(
 			payload := map[string]any{
 				"filename": file.Filename,
 				"size":     file.Size,
+				"status":   "uploaded",
+			}
+			if strings.TrimSpace(file.VirtualPath) != "" {
+				payload["path"] = file.VirtualPath
+				payload["virtual_path"] = file.VirtualPath
+			}
+			if strings.TrimSpace(file.ArtifactURL) != "" {
+				payload["artifact_url"] = file.ArtifactURL
 			}
 			if strings.TrimSpace(file.MimeType) != "" {
 				payload["mime_type"] = file.MimeType
 			}
 			if strings.TrimSpace(file.MarkdownFile) != "" {
 				payload["markdown_file"] = file.MarkdownFile
-				payload["markdown_virtual_path"] = "/mnt/user-data/uploads/" + file.MarkdownFile
+				payload["markdown_path"] = file.MarkdownVirtualPath
+				payload["markdown_virtual_path"] = file.MarkdownVirtualPath
+				payload["markdown_artifact_url"] = file.MarkdownArtifactURL
 			}
 			files = append(files, payload)
 		}
@@ -1741,13 +1847,30 @@ func (s *PublicAPIService) cancelLangGraphRunsForThread(
 		activeRuns = append(activeRuns, runs...)
 	}
 
+	seenRunIDs := make(map[string]struct{}, len(activeRuns)+1)
 	for _, run := range activeRuns {
 		runID := strings.TrimSpace(run.RunID)
 		if runID == "" {
 			continue
 		}
+		seenRunIDs[runID] = struct{}{}
 		if err := s.cancelLangGraphRun(ctx, invocation, runID); err != nil {
 			return err
+		}
+	}
+	if traceRecord, err := s.lookupLatestTrace(ctx, invocation.ThreadID, invocation.UserID); err != nil {
+		return err
+	} else if traceRecord != nil && publicAPITraceMatchesInvocation(invocation, traceRecord) {
+		rootRunID := strings.TrimSpace(traceRecord.RootRunID)
+		if rootRunID != "" {
+			if _, seen := seenRunIDs[rootRunID]; !seen {
+				// LangGraph's run list can miss an interrupted root that still has
+				// active worker callbacks. Try the trace root as a best-effort
+				// cancel target before marking the public turn canceled.
+				if err := s.cancelLangGraphRun(ctx, invocation, rootRunID); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -1930,6 +2053,77 @@ func (s *PublicAPIService) lookupLatestTrace(
 		return nil, nil
 	}
 	return s.traceRepo.FindLatestByThreadAndUser(ctx, threadID, userID)
+}
+
+func (s *PublicAPIService) syncInvocationTrace(
+	ctx context.Context,
+	invocation *model.PublicAPIInvocation,
+	terminalStatus string,
+	terminalError string,
+) error {
+	if s.traceRepo == nil || invocation == nil {
+		return nil
+	}
+
+	traceID := ""
+	if invocation.TraceID != nil {
+		traceID = strings.TrimSpace(*invocation.TraceID)
+	}
+
+	var traceRecord *repository.AgentTraceRecord
+	if traceID == "" {
+		record, err := s.lookupLatestTrace(ctx, invocation.ThreadID, invocation.UserID)
+		if err != nil {
+			return err
+		}
+		if record != nil && publicAPITraceMatchesInvocation(invocation, record) {
+			traceRecord = record
+			traceID = strings.TrimSpace(record.TraceID)
+			invocation.TraceID = &traceID
+			invocation.InputTokens = record.InputTokens
+			invocation.OutputTokens = record.OutputTokens
+			invocation.TotalTokens = record.TotalTokens
+		}
+	}
+
+	if traceID == "" || strings.TrimSpace(terminalStatus) == "" {
+		return nil
+	}
+	if traceRecord != nil && strings.TrimSpace(traceRecord.Status) != "running" {
+		return nil
+	}
+
+	var errPtr *string
+	if trimmed := strings.TrimSpace(terminalError); trimmed != "" {
+		errPtr = &trimmed
+	}
+	// Gateway terminal snapshots are the public source of truth for SDK calls.
+	// If the Python callback never sees a root end/error, close the matching
+	// running trace here so admin audit does not show a phantom active run.
+	return s.traceRepo.FinishRunningTrace(ctx, traceID, strings.TrimSpace(terminalStatus), errPtr)
+}
+
+func publicAPITraceMatchesInvocation(
+	invocation *model.PublicAPIInvocation,
+	trace *repository.AgentTraceRecord,
+) bool {
+	if invocation == nil || trace == nil {
+		return false
+	}
+	if trace.ThreadID == nil || strings.TrimSpace(*trace.ThreadID) != strings.TrimSpace(invocation.ThreadID) {
+		return false
+	}
+	if trace.UserID == nil || *trace.UserID != invocation.UserID {
+		return false
+	}
+	if trace.AgentName != nil && strings.TrimSpace(*trace.AgentName) != "" &&
+		strings.TrimSpace(*trace.AgentName) != strings.TrimSpace(invocation.AgentName) {
+		return false
+	}
+	// The lookup is by thread, so reject traces clearly older than this public
+	// invocation to avoid attaching a previous turn's trace to a prepare-stage
+	// failure that never reached LangGraph.
+	return !trace.StartedAt.Before(invocation.CreatedAt.Add(-30 * time.Second))
 }
 
 type outputArtifactSignature struct {
@@ -2200,12 +2394,20 @@ func (s *PublicAPIService) stageInputFilesForThread(
 		if inputFile.MimeType != nil {
 			mimeType = strings.TrimSpace(*inputFile.MimeType)
 		}
-		staged = append(staged, publicAPIRuntimeUpload{
-			Filename:     targetFilename,
-			Size:         inputFile.SizeBytes,
-			MimeType:     mimeType,
-			MarkdownFile: markdownFile,
-		})
+		virtualPath := publicAPIUploadVirtualPath(targetFilename)
+		stagedUpload := publicAPIRuntimeUpload{
+			Filename:    targetFilename,
+			Size:        inputFile.SizeBytes,
+			MimeType:    mimeType,
+			VirtualPath: virtualPath,
+			ArtifactURL: publicAPIUploadArtifactURL(threadID, targetFilename),
+		}
+		if markdownFile != "" {
+			stagedUpload.MarkdownFile = markdownFile
+			stagedUpload.MarkdownVirtualPath = publicAPIUploadVirtualPath(markdownFile)
+			stagedUpload.MarkdownArtifactURL = publicAPIUploadArtifactURL(threadID, markdownFile)
+		}
+		staged = append(staged, stagedUpload)
 	}
 
 	return staged, nil
@@ -2225,6 +2427,9 @@ func (s *PublicAPIService) finishInvocationWithError(
 	invocation.Error = &message
 	finishedAt := time.Now().UTC()
 	invocation.FinishedAt = &finishedAt
+	if err := s.syncInvocationTrace(ctx, invocation, "error", message); err != nil {
+		log.Printf("public_api: failed to sync failed invocation trace response_id=%s: %v", invocation.ResponseID, err)
+	}
 	if invocation != nil && invocation.Surface == "turns" {
 		invocation.ResponseJSON = buildFailedTurnSnapshotEnvelope(invocation, message, cause)
 	} else {
@@ -2359,6 +2564,24 @@ func buildPublicAPIThreadUploadName(fileID string, originalFilename string) stri
 	// staging uses a deterministic suffix instead of overwriting another file
 	// that merely shares the same original basename.
 	return fmt.Sprintf("%s--%s%s", stem, suffix, extension)
+}
+
+func publicAPIUploadVirtualPath(filename string) string {
+	return "/mnt/user-data/uploads/" + filename
+}
+
+func publicAPIUploadArtifactURL(threadID string, filename string) string {
+	encodedThreadID := url.PathEscape(threadID)
+	encodedFilename := publicAPIEncodeArtifactPath(publicAPIUploadVirtualPath(filename))
+	return fmt.Sprintf("/api/threads/%s/artifacts/%s", encodedThreadID, encodedFilename)
+}
+
+func publicAPIEncodeArtifactPath(filepath string) string {
+	parts := strings.Split(strings.TrimPrefix(filepath, "/"), "/")
+	for index, part := range parts {
+		parts[index] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func copyFile(sourcePath string, targetPath string) error {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -714,6 +715,9 @@ func (s *PublicAPIService) finishCanceledTurn(
 	plan.Invocation.Error = &message
 	finishedAt := time.Now().UTC()
 	plan.Invocation.FinishedAt = &finishedAt
+	if err := s.syncInvocationTrace(ctx, plan.Invocation, "error", message); err != nil {
+		log.Printf("public_api: failed to sync canceled turn trace response_id=%s: %v", plan.ResponseID, err)
+	}
 
 	canceled := collector.push(model.TurnEvent{
 		Type:   model.TurnEventTurnCanceled,

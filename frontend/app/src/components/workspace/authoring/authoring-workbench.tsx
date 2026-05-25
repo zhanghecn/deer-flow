@@ -44,7 +44,19 @@ type FileBuffer = {
   draftValue: string;
 };
 
-function pickInitialFile(draft: AuthoringDraft) {
+function pickInitialFile(
+  draft: AuthoringDraft,
+  requestedRelativePath?: string | null,
+) {
+  const normalizedRequestedPath = requestedRelativePath
+    ? normalizeRelativeFilePath(requestedRelativePath)
+    : null;
+  if (normalizedRequestedPath) {
+    const requestedPath = joinVirtualPath(draft.root_path, normalizedRequestedPath);
+    if (draft.files.some((entry) => !entry.is_dir && entry.path === requestedPath)) {
+      return requestedPath;
+    }
+  }
   return (
     draft.files.find((entry) => !entry.is_dir && entry.name === "AGENTS.md")
       ?.path ??
@@ -132,6 +144,10 @@ export function AuthoringWorkbench({
       sourcePath: targetSourcePath,
     });
   }, [searchParams, targetKind, targetName, targetSourcePath, targetStatus]);
+  const requestedInitialPath = useMemo(
+    () => searchParams.get("path")?.trim() ?? null,
+    [searchParams],
+  );
 
   const loadDirectory = useCallback(
     async (path: string) => {
@@ -186,7 +202,37 @@ export function AuthoringWorkbench({
         setExpandedDirs({ [nextDraft.root_path]: true });
         setBuffers({});
 
-        const initialFile = pickInitialFile(nextDraft);
+        let initialFile = pickInitialFile(nextDraft, requestedInitialPath);
+        const normalizedRequestedPath = requestedInitialPath
+          ? normalizeRelativeFilePath(requestedInitialPath)
+          : null;
+        const requestedPath = normalizedRequestedPath
+          ? joinVirtualPath(nextDraft.root_path, normalizedRequestedPath)
+          : null;
+        if (
+          requestedPath &&
+          targetKind === "agent" &&
+          normalizedRequestedPath === "subagents.yaml" &&
+          !nextDraft.files.some(
+            (entry) => !entry.is_dir && entry.path === requestedPath,
+          )
+        ) {
+          // `subagents.yaml` is optional until custom subagents exist. Opening
+          // it from settings should create a valid empty draft file instead of
+          // dropping the operator into an unrelated archive asset.
+          await writeAuthoringFile({
+            thread_id: threadId,
+            path: requestedPath,
+            content: "version: 1\nsubagents: {}\n",
+          });
+          const files = await listAuthoringFiles(threadId, nextDraft.root_path);
+          if (cancelled) {
+            return;
+          }
+          setDraft({ ...nextDraft, files });
+          setEntriesByDir({ [nextDraft.root_path]: files });
+          initialFile = requestedPath;
+        }
         setSelectedPath(initialFile);
         if (initialFile) {
           const payload = await readAuthoringFile(threadId, initialFile);
@@ -217,7 +263,14 @@ export function AuthoringWorkbench({
     return () => {
       cancelled = true;
     };
-  }, [targetKind, targetName, targetSourcePath, targetStatus, threadId]);
+  }, [
+    requestedInitialPath,
+    targetKind,
+    targetName,
+    targetSourcePath,
+    targetStatus,
+    threadId,
+  ]);
 
   const hasDirtyChanges = useMemo(
     () =>

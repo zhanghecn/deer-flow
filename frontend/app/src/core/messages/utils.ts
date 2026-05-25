@@ -463,7 +463,10 @@ export interface FileInMessage {
   filename: string;
   size: number; // bytes
   path?: string; // virtual path, may not be set during upload
+  virtual_path?: string;
+  artifact_url?: string;
   markdown_file?: string;
+  markdown_path?: string;
   markdown_virtual_path?: string;
   markdown_artifact_url?: string;
   status?: "uploading" | "uploaded";

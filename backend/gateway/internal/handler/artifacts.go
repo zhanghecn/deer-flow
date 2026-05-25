@@ -142,10 +142,13 @@ func artifactCandidates(
 		return []string{filepath.Join(userDataDir, "outputs", relativePath)}
 	case "workspace":
 		return []string{filepath.Join(userDataDir, "workspace", relativePath)}
+	case "uploads":
+		return []string{filepath.Join(userDataDir, "uploads", relativePath)}
 	default:
 		return []string{
 			filepath.Join(userDataDir, "outputs", relativePath),
 			filepath.Join(userDataDir, "workspace", relativePath),
+			filepath.Join(userDataDir, "uploads", relativePath),
 		}
 	}
 }
@@ -187,6 +190,9 @@ func normalizeArtifactPath(cleaned string) (relativePath string, preferredScope 
 		{"mnt/user-data/workspace/", "workspace"},
 		{"/mnt/user-data/workspace/", "workspace"},
 		{"workspace/", "workspace"},
+		{"mnt/user-data/uploads/", "uploads"},
+		{"/mnt/user-data/uploads/", "uploads"},
+		{"uploads/", "uploads"},
 	}
 
 	for _, item := range prefixes {

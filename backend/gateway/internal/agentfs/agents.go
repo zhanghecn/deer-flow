@@ -118,7 +118,14 @@ func normalizeLoadedSkillRef(ref model.SkillRef) model.SkillRef {
 }
 
 func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown bool) (*model.Agent, error) {
-	configFile := filepath.Join(fsStore.AgentDir(name, status), "config.yaml")
+	return LoadAgentFromDir(fsStore.AgentDir(name, status), name, status, includeMarkdown)
+}
+
+// LoadAgentFromDir validates an arbitrary archive-shaped directory. Authoring
+// drafts use this before save so hand-edited config.yaml/subagents.yaml must
+// still satisfy the same parsing contract as canonical agent archives.
+func LoadAgentFromDir(agentDir string, name string, status string, includeMarkdown bool) (*model.Agent, error) {
+	configFile := filepath.Join(agentDir, "config.yaml")
 	info, err := os.Stat(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -180,7 +187,7 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 		normalized := defaultSubagentDefaults()
 		agent.SubagentDefaults = &normalized
 	}
-	subagents, err := loadSubagents(fsStore, agentName, status)
+	subagents, err := loadSubagentsFromPath(filepath.Join(agentDir, "subagents.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +198,7 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 		if agentsMDPath == "" {
 			agentsMDPath = "AGENTS.md"
 		}
-		markdown, err := os.ReadFile(filepath.Join(fsStore.AgentDir(agentName, status), filepath.Clean(agentsMDPath)))
+		markdown, err := os.ReadFile(filepath.Join(agentDir, filepath.Clean(agentsMDPath)))
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
@@ -202,7 +209,10 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 }
 
 func loadSubagents(fsStore *storage.FS, name string, status string) ([]model.AgentSubagent, error) {
-	sourcePath := fsStore.AgentSubagentsPath(name, status)
+	return loadSubagentsFromPath(fsStore.AgentSubagentsPath(name, status))
+}
+
+func loadSubagentsFromPath(sourcePath string) ([]model.AgentSubagent, error) {
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
 		if os.IsNotExist(err) {

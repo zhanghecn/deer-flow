@@ -13,10 +13,13 @@ function openExternalWorkspace(relativeUrl: string) {
   }
 }
 
+const EMPTY_ARTIFACTS: string[] = [];
+
 export function useWorkbenchActions(threadId: string) {
   const { t } = useI18n();
   const {
     artifacts,
+    activeThreadId,
     selectedArtifact,
     select,
     setOpen: setArtifactsOpen,
@@ -30,11 +33,16 @@ export function useWorkbenchActions(threadId: string) {
     threadHint,
   } = useWorkspaceSurface();
   const openRuntimeWorkspace = useOpenRuntimeWorkspace();
+  const isArtifactsThreadSynced = activeThreadId === threadId;
+  const threadArtifacts = isArtifactsThreadSynced ? artifacts : EMPTY_ARTIFACTS;
+  const threadSelectedArtifact = isArtifactsThreadSynced
+    ? selectedArtifact
+    : null;
 
   const openArtifactWorkspace = useCallback(
     (artifactPath?: string) => {
       const resolvedArtifactPath =
-        artifactPath ?? selectedArtifact ?? undefined;
+        artifactPath ?? threadSelectedArtifact ?? undefined;
 
       if (artifactPath) {
         select(artifactPath);
@@ -54,7 +62,7 @@ export function useWorkbenchActions(threadId: string) {
       openSurface,
       rememberThreadHint,
       select,
-      selectedArtifact,
+      threadSelectedArtifact,
       setArtifactsOpen,
     ],
   );
@@ -112,7 +120,7 @@ export function useWorkbenchActions(threadId: string) {
   );
 
   return {
-    artifacts,
+    artifacts: threadArtifacts,
     isOpeningRuntime: openRuntimeWorkspace.isPending,
     openArtifactWorkspace,
     openRuntimeWorkbench,

@@ -1,5 +1,11 @@
+import { AlertCircleIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +24,7 @@ import {
   mergeVisibleArtifacts,
 } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
+import { useLatestThreadPublicAPIInvocation } from "@/core/public-api/hooks";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
 import { env } from "@/env";
@@ -34,6 +41,7 @@ const MEDIUM_ARTIFACT_DISCOVERY_POLL_MS = 15000;
 const SLOW_ARTIFACT_DISCOVERY_POLL_MS = 30000;
 const STABLE_DISCOVERY_POLLS_FOR_MEDIUM = 2;
 const STABLE_DISCOVERY_POLLS_FOR_SLOW = 5;
+const EMPTY_ARTIFACTS: string[] = [];
 
 function hasSameArtifacts(left: string[], right: string[]) {
   return (
@@ -58,6 +66,68 @@ function getArtifactDiscoveryPollInterval(
   return FAST_ARTIFACT_DISCOVERY_POLL_MS;
 }
 
+function isFailedInvocationStatus(status?: string) {
+  const normalizedStatus = status?.trim().toLowerCase();
+  return normalizedStatus === "failed" || normalizedStatus === "error";
+}
+
+function ThreadExecutionErrorBanner({
+  enabled,
+  threadId,
+}: {
+  enabled: boolean;
+  threadId: string;
+}) {
+  const { t } = useI18n();
+  // Public SDK/API failures are ledger rows, not guaranteed LangGraph messages.
+  // Read the ledger explicitly so a thread with old visible content still shows
+  // the latest external-call failure instead of looking silently successful.
+  const { data: latestInvocation } = useLatestThreadPublicAPIInvocation({
+    threadId,
+    enabled,
+  });
+
+  if (!isFailedInvocationStatus(latestInvocation?.status)) {
+    return null;
+  }
+
+  const trimmedError = latestInvocation?.error?.trim();
+  const errorMessage =
+    trimmedError && trimmedError.length > 0
+      ? trimmedError
+      : t.workspace.executionErrorFallback;
+  const details = [
+    latestInvocation?.response_id
+      ? `${t.workspace.executionErrorResponseId}: ${latestInvocation.response_id}`
+      : null,
+    latestInvocation?.trace_id
+      ? `${t.workspace.executionErrorTraceId}: ${latestInvocation.trace_id}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-14 z-40 flex justify-center px-4">
+      <Alert
+        variant="destructive"
+        className="pointer-events-auto max-w-(--container-width-md) border-destructive/40 bg-background/95 shadow-lg backdrop-blur"
+      >
+        <AlertCircleIcon />
+        <AlertTitle>{t.workspace.executionErrorTitle}</AlertTitle>
+        <AlertDescription>
+          <p className="break-words">{errorMessage}</p>
+          {details.length > 0 && (
+            <div className="text-destructive/75 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              {details.map((detail) => (
+                <span key={detail}>{detail}</span>
+              ))}
+            </div>
+          )}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   children,
   threadId,
@@ -70,6 +140,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     setOpen: setArtifactsOpen,
     setArtifacts,
     syncThread,
+    activeThreadId,
     select: selectArtifact,
     deselect,
     selectedArtifact,
@@ -121,14 +192,27 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     () => discoveredOutputArtifacts.join("\n"),
     [discoveredOutputArtifacts],
   );
+  const isArtifactsThreadSynced = activeThreadId === threadId;
+  const threadArtifacts = isArtifactsThreadSynced ? artifacts : EMPTY_ARTIFACTS;
+  const threadSelectedArtifact = isArtifactsThreadSynced
+    ? selectedArtifact
+    : null;
   const visibleArtifacts = useMemo(
     () =>
       mergeVisibleArtifacts(
-        artifacts,
+        threadArtifacts,
         mergeVisibleArtifacts(stateArtifacts, discoveredOutputArtifacts),
       ),
-    [artifacts, discoveredOutputArtifacts, stateArtifacts],
+    [discoveredOutputArtifacts, stateArtifacts, threadArtifacts],
   );
+
+  useEffect(() => {
+    // Thread switches can leave the provider holding the previous thread's
+    // selected artifact for one render. Sync early and keep render-time reads
+    // scoped by activeThreadId so stale paths never hit the current thread API.
+    syncThread(threadId);
+    setAutoSelectFirstArtifact(true);
+  }, [syncThread, threadId]);
 
   useEffect(() => {
     lastDiscoveredArtifactsKeyRef.current = null;
@@ -172,22 +256,23 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   }, [discoveredArtifactsKey, discoveredArtifactsUpdatedAt, thread.isLoading]);
 
   const selectedOfficeArtifact = useMemo(() => {
-    if (!selectedArtifact) {
+    if (!threadSelectedArtifact) {
       return null;
     }
-    return getOnlyOfficeDocumentDescriptor(selectedArtifact)
-      ? selectedArtifact
+    return getOnlyOfficeDocumentDescriptor(threadSelectedArtifact)
+      ? threadSelectedArtifact
       : null;
-  }, [selectedArtifact]);
+  }, [threadSelectedArtifact]);
   const officeDialogOpen = artifactsOpen && selectedOfficeArtifact !== null;
 
   useEffect(() => {
-    if (!hasSameArtifacts(artifacts, visibleArtifacts)) {
+    if (!hasSameArtifacts(threadArtifacts, visibleArtifacts)) {
       setArtifacts(visibleArtifacts);
     }
     if (
       visibleArtifacts.length === 0 ||
-      (selectedArtifact && !visibleArtifacts.includes(selectedArtifact))
+      (threadSelectedArtifact &&
+        !visibleArtifacts.includes(threadSelectedArtifact))
     ) {
       deselect();
     }
@@ -199,11 +284,11 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     }
   }, [
     autoSelectFirstArtifact,
-    artifacts,
     deselect,
+    threadArtifacts,
+    threadSelectedArtifact,
     visibleArtifacts,
     selectArtifact,
-    selectedArtifact,
     setArtifacts,
   ]);
 
@@ -214,34 +299,28 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   }, [artifactsOpen, deselect, selectedOfficeArtifact]);
 
   useEffect(() => {
-    syncThread(threadId);
-    setAutoSelectFirstArtifact(true);
-  }, [syncThread, threadId]);
-
-  useEffect(() => {
     const threadHint = workspaceSurface.threadHint;
+    const hintedPreviewArtifact =
+      threadHint?.surface === "preview" ? threadHint.artifact_path : undefined;
     if (
-      !threadHint ||
-      threadHint.surface !== "preview" ||
-      !threadHint.artifact_path ||
-      !visibleArtifacts.includes(threadHint.artifact_path)
+      !hintedPreviewArtifact ||
+      !visibleArtifacts.includes(hintedPreviewArtifact)
     ) {
       return;
     }
 
-    if (selectedArtifact) {
+    if (threadSelectedArtifact) {
       return;
     }
 
-    const previewArtifact = threadHint.artifact_path;
     // Thread hints are persisted separately from live artifact selection, so a
     // page reload should rehydrate the selected preview only when the live
     // selector has no user-chosen artifact yet. Once the user switches files in
     // the dock, the hint must not continuously pull the preview back.
-    selectArtifact(previewArtifact, true);
+    selectArtifact(hintedPreviewArtifact, true);
   }, [
     selectArtifact,
-    selectedArtifact,
+    threadSelectedArtifact,
     threadId,
     visibleArtifacts,
     workspaceSurface.threadHint,
@@ -281,6 +360,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
         defaultLayout={artifactPanelOpen ? OPEN_MODE : CLOSE_MODE}
       >
         <ResizablePanel className="relative overflow-hidden" id="chat">
+          <ThreadExecutionErrorBanner enabled={!isMock} threadId={threadId} />
           {children}
         </ResizablePanel>
         <ResizableHandle
@@ -304,6 +384,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
           >
             <WorkspaceSurfaceDock
               threadId={threadId}
+              selectedArtifact={threadSelectedArtifact}
               visibleArtifacts={visibleArtifacts}
             />
           </div>

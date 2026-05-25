@@ -4,10 +4,12 @@ export function buildWorkspaceAgentAuthoringPath({
   agentName,
   agentStatus,
   threadId,
+  path,
 }: {
   agentName: string;
   agentStatus?: AgentStatus;
   threadId?: string;
+  path?: string;
 }) {
   const params = new URLSearchParams();
   if (agentStatus) {
@@ -15,6 +17,9 @@ export function buildWorkspaceAgentAuthoringPath({
   }
   if (threadId?.trim()) {
     params.set("thread_id", threadId.trim());
+  }
+  if (path?.trim()) {
+    params.set("path", path.trim());
   }
   const query = params.toString();
   const pathname = `/workspace/agents/${encodeURIComponent(agentName)}/authoring`;

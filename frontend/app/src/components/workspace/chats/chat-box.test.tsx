@@ -28,6 +28,17 @@ type ThreadOutputArtifactsHookResult = {
   lastUpdatedAt: number;
 };
 
+type LatestInvocationHookResult = {
+  data: {
+    response_id: string;
+    trace_id?: string;
+    status: string;
+    error?: string;
+  } | null;
+  isLoading: boolean;
+  error: null;
+};
+
 function defaultThreadOutputArtifactsResult(
   _args?: ThreadOutputArtifactsHookArgs,
 ): ThreadOutputArtifactsHookResult {
@@ -42,10 +53,21 @@ function defaultThreadOutputArtifactsResult(
 const useThreadOutputArtifactsMock = vi.fn<
   (args?: ThreadOutputArtifactsHookArgs) => ThreadOutputArtifactsHookResult
 >(defaultThreadOutputArtifactsResult);
+const useLatestThreadPublicAPIInvocationMock = vi.fn<
+  (args: { threadId: string; enabled?: boolean }) => LatestInvocationHookResult
+>(() => ({ data: null, isLoading: false, error: null }));
+const artifactDetailRenderPaths = vi.hoisted((): string[] => []);
 
 vi.mock("@/core/artifacts/hooks", () => ({
   useThreadOutputArtifacts: (args?: ThreadOutputArtifactsHookArgs) =>
     useThreadOutputArtifactsMock(args),
+}));
+
+vi.mock("@/core/public-api/hooks", () => ({
+  useLatestThreadPublicAPIInvocation: (args: {
+    threadId: string;
+    enabled?: boolean;
+  }) => useLatestThreadPublicAPIInvocationMock(args),
 }));
 
 vi.mock("@/components/workspace/artifacts", async () => {
@@ -55,9 +77,10 @@ vi.mock("@/components/workspace/artifacts", async () => {
 
   return {
     ...actual,
-    ArtifactFileDetail: ({ filepath }: { filepath: string }) => (
-      <div data-testid="artifact-detail">{filepath.split("/").pop()}</div>
-    ),
+    ArtifactFileDetail: ({ filepath }: { filepath: string }) => {
+      artifactDetailRenderPaths.push(filepath);
+      return <div data-testid="artifact-detail">{filepath.split("/").pop()}</div>;
+    },
     ArtifactFileList: ({ files }: { files: string[] }) => (
       <div data-testid="artifact-list">
         {files.map((file) => file.split("/").pop()).join(",")}
@@ -139,10 +162,17 @@ function renderChatBoxShell({
 describe("ChatBox", () => {
   beforeEach(() => {
     localStorage.clear();
+    artifactDetailRenderPaths.length = 0;
     useThreadOutputArtifactsMock.mockReset();
     useThreadOutputArtifactsMock.mockImplementation(
       defaultThreadOutputArtifactsResult,
     );
+    useLatestThreadPublicAPIInvocationMock.mockReset();
+    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    });
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockImplementation(() => ({
@@ -248,6 +278,103 @@ describe("ChatBox", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("artifact-detail")).not.toBeInTheDocument();
     });
+  });
+
+  it("does not render a previous thread artifact while switching threads", async () => {
+    const previousArtifactPath =
+      "/mnt/user-data/outputs/designed-report-v11/index.html";
+    const currentArtifactPath =
+      "/mnt/user-data/outputs/designed-report-v10/index.html";
+    const queryClient = createQueryClient();
+
+    const firstThread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [previousArtifactPath],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const secondThread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [currentArtifactPath],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+
+    const { rerender } = render(
+      renderChatBoxShell({
+        queryClient,
+        thread: firstThread,
+        isMock: true,
+        threadId: "thread-previous",
+        children: (
+          <>
+            <OpenOfficeArtifact path={previousArtifactPath} />
+            <div>Chat content</div>
+          </>
+        ),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-detail")).toHaveTextContent(
+        "index.html",
+      );
+    });
+
+    artifactDetailRenderPaths.length = 0;
+    rerender(
+      renderChatBoxShell({
+        queryClient,
+        thread: secondThread,
+        isMock: true,
+        threadId: "thread-current",
+      }),
+    );
+
+    expect(artifactDetailRenderPaths).not.toContain(previousArtifactPath);
+  });
+
+  it("surfaces failed public API invocations on the thread page", async () => {
+    useLatestThreadPublicAPIInvocationMock.mockReturnValue({
+      data: {
+        response_id: "resp_failed",
+        trace_id: "trace_failed",
+        status: "failed",
+        error: "assistant response text was not found in thread state",
+      },
+      isLoading: false,
+      error: null,
+    });
+    const thread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const queryClient = createQueryClient();
+
+    render(
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: false,
+        threadId: "thread-failed",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Run failed");
+    expect(alert).toHaveTextContent(
+      "assistant response text was not found in thread state",
+    );
+    expect(alert).toHaveTextContent("Response ID: resp_failed");
+    expect(alert).toHaveTextContent("Trace ID: trace_failed");
   });
 
   it("restores a remembered preview selection after thread hydration", async () => {

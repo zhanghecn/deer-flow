@@ -11,8 +11,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
+	"gopkg.in/yaml.v3"
 )
 
 const authoringVirtualPathPrefix = "/mnt/user-data/authoring"
@@ -169,11 +171,20 @@ func (s *AuthoringWorkspaceService) DeleteDraftPath(userID string, threadID stri
 	return os.RemoveAll(actualPath)
 }
 
-func (s *AuthoringWorkspaceService) SaveAgentDraft(userID string, threadID string, agentName string, agentStatus string) (string, error) {
+func (s *AuthoringWorkspaceService) SaveAgentDraft(
+	userID string,
+	threadID string,
+	agentName string,
+	agentStatus string,
+	expectedOwnerUserID string,
+) (string, error) {
 	status := normalizeAuthoringAgentStatus(agentStatus)
 	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "agents", status, agentName)
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
 		return "", fmt.Errorf("agent draft %q (%s) not found", agentName, status)
+	}
+	if err := validateAgentAuthoringDraft(draftDir, agentName, status, expectedOwnerUserID); err != nil {
+		return "", err
 	}
 
 	targetDir := s.fs.AgentDir(agentName, status)
@@ -182,6 +193,75 @@ func (s *AuthoringWorkspaceService) SaveAgentDraft(userID string, threadID strin
 		return "", err
 	}
 	return s.virtualAuthoringPath(userID, threadID, draftDir), nil
+}
+
+func validateAgentAuthoringDraft(
+	draftDir string,
+	agentName string,
+	status string,
+	expectedOwnerUserID string,
+) error {
+	// The workbench is intentionally file-oriented, but save still acts on a
+	// product archive. Parse the edited files before replacing the canonical copy
+	// so a bad YAML edit cannot brick an agent.
+	agent, err := agentfs.LoadAgentFromDir(draftDir, agentName, status, true)
+	if err != nil {
+		return fmt.Errorf("invalid agent draft: %w", err)
+	}
+	if agent == nil {
+		return fmt.Errorf("invalid agent draft: config.yaml is required")
+	}
+	if !strings.EqualFold(strings.TrimSpace(agent.Name), strings.TrimSpace(agentName)) {
+		return fmt.Errorf("invalid agent draft: config.yaml name %q must match %q", agent.Name, agentName)
+	}
+	if strings.TrimSpace(agent.OwnerUserID) != strings.TrimSpace(expectedOwnerUserID) {
+		// Ownership is an access-control invariant, not an editable behavior
+		// setting. Keep transfers out of raw archive edits so a prompt/config
+		// mistake cannot make a user-owned agent unmanageable or cross-owned.
+		return fmt.Errorf("invalid agent draft: owner_user_id cannot be changed in authoring workspace")
+	}
+	configuredStatus, err := readAgentDraftStatus(draftDir)
+	if err != nil {
+		return err
+	}
+	if configuredStatus != "" && configuredStatus != status {
+		return fmt.Errorf("invalid agent draft: config.yaml status %q must match %q", configuredStatus, status)
+	}
+	if _, err := os.Stat(filepath.Join(draftDir, "AGENTS.md")); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("invalid agent draft: AGENTS.md is required")
+		}
+		return fmt.Errorf("invalid agent draft: %w", err)
+	}
+	for _, subagent := range agent.Subagents {
+		if strings.TrimSpace(subagent.Name) == "" {
+			return fmt.Errorf("invalid agent draft: subagent name is required")
+		}
+		if strings.EqualFold(strings.TrimSpace(subagent.Name), "general-purpose") {
+			return fmt.Errorf("invalid agent draft: subagent name %q is reserved", subagent.Name)
+		}
+		if strings.TrimSpace(subagent.Description) == "" {
+			return fmt.Errorf("invalid agent draft: subagent %q requires description", subagent.Name)
+		}
+		if strings.TrimSpace(subagent.SystemPrompt) == "" {
+			return fmt.Errorf("invalid agent draft: subagent %q requires system_prompt", subagent.Name)
+		}
+	}
+	return nil
+}
+
+func readAgentDraftStatus(draftDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(draftDir, "config.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("invalid agent draft: %w", err)
+	}
+	var payload struct {
+		Status string `yaml:"status"`
+	}
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return "", fmt.Errorf("invalid agent draft: %w", err)
+	}
+	return strings.TrimSpace(payload.Status), nil
 }
 
 func (s *AuthoringWorkspaceService) copyAgentArchiveIntoDraft(sourceDir string, draftDir string) error {

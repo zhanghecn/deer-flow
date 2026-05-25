@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -119,6 +120,55 @@ func overwriteAgentDraft(
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected overwrite draft status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func writeAuthoringFileForTest(
+	t *testing.T,
+	handler *AuthoringWorkspaceHandler,
+	userID uuid.UUID,
+	threadID string,
+	path string,
+	content string,
+) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{
+		"thread_id": threadID,
+		"path":      path,
+		"content":   content,
+	})
+	if err != nil {
+		t.Fatalf("marshal authoring write payload: %v", err)
+	}
+	context, recorder := newAuthoringAuthedContext(
+		http.MethodPut,
+		"/api/authoring/file",
+		string(payload),
+		userID,
+	)
+	handler.WriteFile(context)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected write status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func saveAgentDraftForTest(
+	t *testing.T,
+	handler *AuthoringWorkspaceHandler,
+	userID uuid.UUID,
+	threadID string,
+	agentName string,
+	agentStatus string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	context, recorder := newAuthoringAuthedContext(
+		http.MethodPost,
+		"/api/authoring/agents/"+agentName+"/save",
+		`{"thread_id":"`+threadID+`","agent_status":"`+agentStatus+`"}`,
+		userID,
+	)
+	context.Params = gin.Params{{Key: "name", Value: agentName}}
+	handler.SaveAgentDraft(context)
+	return recorder
 }
 
 func readAuthoringAgentsMD(t *testing.T, fsStore *storage.FS, userID uuid.UUID, threadID string, agentName string) string {
@@ -384,6 +434,160 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftMigratesLegacyStaleDraft(t *te
 	data := readAuthoringAgentsMD(t, fsStore, userID, threadID, "reviewer")
 	if !strings.Contains(data, "Updated source") {
 		t.Fatalf("legacy stale draft was not migrated to archive content: %s", data)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerSaveAgentDraftPersistsValidatedArchive(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	writeAuthoringFileForTest(
+		t,
+		handler,
+		userID,
+		threadID,
+		"/mnt/user-data/authoring/agents/dev/reviewer/AGENTS.md",
+		"# Agent\n\nSaved from workbench",
+	)
+	writeAuthoringFileForTest(
+		t,
+		handler,
+		userID,
+		threadID,
+		"/mnt/user-data/authoring/agents/dev/reviewer/config.yaml",
+		"name: reviewer\nstatus: dev\ndescription: Edited\nowner_user_id: "+userID.String()+"\nagents_md_path: AGENTS.md\npublic_api_auth_mode: trusted_external\n",
+	)
+	writeAuthoringFileForTest(
+		t,
+		handler,
+		userID,
+		threadID,
+		"/mnt/user-data/authoring/agents/dev/reviewer/subagents.yaml",
+		"version: 1\nsubagents:\n  researcher:\n    description: Search evidence\n    system_prompt: Use attached sources only.\n    enabled: true\n",
+	)
+
+	recorder := saveAgentDraftForTest(t, handler, userID, threadID, "reviewer", "dev")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected save status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	agent, err := agentfs.LoadAgent(fsStore, "reviewer", "dev", true)
+	if err != nil {
+		t.Fatalf("load saved agent: %v", err)
+	}
+	if agent == nil {
+		t.Fatal("saved agent was not found")
+	}
+	if agent.PublicAPIAuthMode != model.PublicAPIAuthModeTrustedExternal {
+		t.Fatalf("PublicAPIAuthMode = %q, want trusted_external", agent.PublicAPIAuthMode)
+	}
+	if !strings.Contains(agent.AgentsMD, "Saved from workbench") {
+		t.Fatalf("AGENTS.md was not saved: %s", agent.AgentsMD)
+	}
+	if len(agent.Subagents) != 1 || agent.Subagents[0].Name != "researcher" {
+		t.Fatalf("unexpected subagents: %#v", agent.Subagents)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerSaveAgentDraftRejectsInvalidArchive(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	writeAuthoringFileForTest(
+		t,
+		handler,
+		userID,
+		threadID,
+		"/mnt/user-data/authoring/agents/dev/reviewer/config.yaml",
+		"name: reviewer\nstatus: dev\ndescription: Edited\nagents_md_path: AGENTS.md\npublic_api_auth_mode: nope\n",
+	)
+
+	recorder := saveAgentDraftForTest(t, handler, userID, threadID, "reviewer", "dev")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected save status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "public_api_auth_mode") {
+		t.Fatalf("save error = %s, want public_api_auth_mode detail", recorder.Body.String())
+	}
+
+	agent, err := agentfs.LoadAgent(fsStore, "reviewer", "dev", true)
+	if err != nil {
+		t.Fatalf("load original agent: %v", err)
+	}
+	if agent == nil || agent.Description != "Owned agent" {
+		t.Fatalf("invalid draft unexpectedly overwrote archive: %#v", agent)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerSaveAgentDraftRejectsOwnerChange(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	writeAuthoringFileForTest(
+		t,
+		handler,
+		userID,
+		threadID,
+		"/mnt/user-data/authoring/agents/dev/reviewer/config.yaml",
+		"name: reviewer\nstatus: dev\ndescription: Edited\nagents_md_path: AGENTS.md\nowner_user_id: "+uuid.NewString()+"\n",
+	)
+
+	recorder := saveAgentDraftForTest(t, handler, userID, threadID, "reviewer", "dev")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected save status 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "owner_user_id") {
+		t.Fatalf("save error = %s, want owner_user_id detail", recorder.Body.String())
+	}
+
+	agent, err := agentfs.LoadAgent(fsStore, "reviewer", "dev", true)
+	if err != nil {
+		t.Fatalf("load original agent: %v", err)
+	}
+	if agent == nil || agent.OwnerUserID != userID.String() {
+		t.Fatalf("owner change unexpectedly overwrote archive: %#v", agent)
 	}
 }
 

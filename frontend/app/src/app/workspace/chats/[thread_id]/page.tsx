@@ -30,6 +30,7 @@ import {
   buildThreadCompletionNotificationBody,
   buildThreadPath,
   buildThreadRuntimeContext,
+  canThreadCallbackNavigateCurrentRoute,
   didThreadRuntimeSelectionChange,
   resolveThreadRuntimeBinding,
 } from "@/core/threads/utils";
@@ -146,14 +147,39 @@ export default function ChatPage() {
   useSpecificChatMode();
 
   const { showNotification } = useNotification();
+  const canCurrentRouteAcceptThreadCallback = useCallback(
+    (callbackThreadId: string) => {
+      if (typeof window === "undefined") {
+        return true;
+      }
+
+      return canThreadCallbackNavigateCurrentRoute(
+        window.location.pathname,
+        callbackThreadId,
+      );
+    },
+    [],
+  );
   const clearPendingRun = useCallback(() => {
+    if (!canCurrentRouteAcceptThreadCallback(threadId)) {
+      return;
+    }
+
     setIsPendingRun(false);
     const nextPath = buildThreadPath(runtimeSelection, threadId, { isMock });
     const currentPath = buildCurrentPath(pathname, searchParams);
     if (nextPath !== currentPath) {
       void navigate(nextPath, { replace: true });
     }
-  }, [isMock, navigate, pathname, runtimeSelection, searchParams, threadId]);
+  }, [
+    canCurrentRouteAcceptThreadCallback,
+    isMock,
+    navigate,
+    pathname,
+    runtimeSelection,
+    searchParams,
+    threadId,
+  ]);
 
   useEffect(() => {
     // Route changes can briefly overlap with the previous thread state. Only
@@ -169,6 +195,10 @@ export default function ChatPage() {
       return;
     }
 
+    if (!canCurrentRouteAcceptThreadCallback(threadId)) {
+      return;
+    }
+
     const nextPath = buildThreadPath(runtimeSelection, threadId, {
       isMock,
       isPendingRun,
@@ -181,6 +211,7 @@ export default function ChatPage() {
     isPendingRun,
     isMock,
     isNewThread,
+    canCurrentRouteAcceptThreadCallback,
     pathname,
     routeRuntimeSelection,
     runtimeSelection,
@@ -196,6 +227,10 @@ export default function ChatPage() {
       isMock,
       skipInitialHistory: isNewThread || isPendingRun,
       onStart: (createdThreadId) => {
+        if (!canCurrentRouteAcceptThreadCallback(threadId)) {
+          return;
+        }
+
         setIsPendingRun(true);
         setThreadId(createdThreadId);
         void navigate(
@@ -207,6 +242,10 @@ export default function ChatPage() {
         );
       },
       onFinish: (state) => {
+        if (!canCurrentRouteAcceptThreadCallback(threadId)) {
+          return;
+        }
+
         clearPendingRun();
         if (document.hidden || !document.hasFocus()) {
           showNotification(state.title, {

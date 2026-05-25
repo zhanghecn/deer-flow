@@ -222,6 +222,27 @@ func (r *AdminObservabilityRepo) FindLatestByThreadAndUser(
 	return &item, nil
 }
 
+func (r *AdminObservabilityRepo) FinishRunningTrace(
+	ctx context.Context,
+	traceID string,
+	status string,
+	errorMessage *string,
+) error {
+	// Only close traces that are still running. Python callbacks remain the
+	// authoritative owner for normal completed/error root events; gateway callers
+	// use this as a guarded fallback for SDK disconnects and reconciled stale
+	// traces that never emitted a root terminal callback.
+	_, err := r.pool.Exec(ctx, `
+		UPDATE agent_traces
+		SET status = $2,
+			error = COALESCE($3, error),
+			finished_at = COALESCE(finished_at, NOW())
+		WHERE trace_id = $1
+		  AND status = 'running'
+	`, traceID, status, errorMessage)
+	return err
+}
+
 func (r *AdminObservabilityRepo) CountTraces(
 	ctx context.Context,
 	userID *uuid.UUID,

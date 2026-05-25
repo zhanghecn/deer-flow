@@ -25,9 +25,27 @@ type stubPublicAPIModelRepo struct {
 }
 
 type stubPublicAPIInvocationRepo struct {
-	byResponseID map[string]*model.PublicAPIInvocation
-	listItems    []model.PublicAPIInvocation
-	lastFilter   model.PublicAPIInvocationFilter
+	byResponseID         map[string]*model.PublicAPIInvocation
+	artifactByFileID     map[string]stubPublicAPIArtifactRecord
+	artifactByVirtualKey map[string]*model.PublicAPIArtifact
+	listItems            []model.PublicAPIInvocation
+	lastFilter           model.PublicAPIInvocationFilter
+}
+
+type stubPublicAPIArtifactRecord struct {
+	artifact   model.PublicAPIArtifact
+	invocation model.PublicAPIInvocation
+}
+
+type stubPublicAPITraceRepo struct {
+	latest       *repository.AgentTraceRecord
+	finishedID   string
+	finishedStat string
+	finishedErr  *string
+}
+
+type stubPublicAPIInputFileRepo struct {
+	items map[string]*model.PublicAPIInputFile
 }
 
 func (s stubPublicAPIModelRepo) FindEnabledByName(
@@ -38,6 +56,54 @@ func (s stubPublicAPIModelRepo) FindEnabledByName(
 		return nil, nil
 	}
 	return &repository.ModelRecord{Name: name, Enabled: true}, nil
+}
+
+func (s *stubPublicAPITraceRepo) FindLatestByThreadAndUser(
+	_ context.Context,
+	_ string,
+	_ uuid.UUID,
+) (*repository.AgentTraceRecord, error) {
+	return s.latest, nil
+}
+
+func (s *stubPublicAPITraceRepo) FinishRunningTrace(
+	_ context.Context,
+	traceID string,
+	status string,
+	errorMessage *string,
+) error {
+	s.finishedID = traceID
+	s.finishedStat = status
+	s.finishedErr = errorMessage
+	return nil
+}
+
+func (s *stubPublicAPIInputFileRepo) Create(
+	_ context.Context,
+	file *model.PublicAPIInputFile,
+) error {
+	if s.items == nil {
+		s.items = make(map[string]*model.PublicAPIInputFile)
+	}
+	cloned := *file
+	s.items[file.FileID+"|"+file.APITokenID.String()] = &cloned
+	return nil
+}
+
+func (s *stubPublicAPIInputFileRepo) GetByFileID(
+	_ context.Context,
+	fileID string,
+	apiTokenID uuid.UUID,
+) (*model.PublicAPIInputFile, error) {
+	if s.items == nil {
+		return nil, nil
+	}
+	item := s.items[fileID+"|"+apiTokenID.String()]
+	if item == nil {
+		return nil, nil
+	}
+	cloned := *item
+	return &cloned, nil
 }
 
 func (s *stubPublicAPIInvocationRepo) Create(
@@ -89,10 +155,36 @@ func (s *stubPublicAPIInvocationRepo) GetByResponseID(
 
 func (s *stubPublicAPIInvocationRepo) GetArtifactByFileID(
 	_ context.Context,
-	_ string,
+	fileID string,
 	_ uuid.UUID,
 ) (*model.PublicAPIArtifact, *model.PublicAPIInvocation, error) {
-	return nil, nil, nil
+	if s.artifactByFileID == nil {
+		return nil, nil, nil
+	}
+	item, ok := s.artifactByFileID[fileID]
+	if !ok {
+		return nil, nil, nil
+	}
+	artifact := item.artifact
+	invocation := item.invocation
+	return &artifact, &invocation, nil
+}
+
+func (s *stubPublicAPIInvocationRepo) GetArtifactByVirtualPath(
+	_ context.Context,
+	invocationID uuid.UUID,
+	virtualPath string,
+	_ uuid.UUID,
+) (*model.PublicAPIArtifact, error) {
+	if s.artifactByVirtualKey == nil {
+		return nil, nil
+	}
+	item, ok := s.artifactByVirtualKey[testArtifactVirtualKey(invocationID, virtualPath)]
+	if !ok {
+		return nil, nil
+	}
+	artifact := *item
+	return &artifact, nil
 }
 
 func (s *stubPublicAPIInvocationRepo) ListByUser(
@@ -118,6 +210,10 @@ func testHistoryScopeContains(stored map[string]string, requested map[string]str
 		}
 	}
 	return true
+}
+
+func testArtifactVirtualKey(invocationID uuid.UUID, virtualPath string) string {
+	return invocationID.String() + "|" + virtualPath
 }
 
 func TestFetchThreadStatePassesRuntimeHeaders(t *testing.T) {
@@ -957,7 +1053,13 @@ func TestRunAgentTurnForwardsRuntimeUploadMimeType(t *testing.T) {
 			ModelName:  "vision-model",
 			PromptText: "describe the image",
 			RuntimeUploads: []publicAPIRuntimeUpload{
-				{Filename: "file_123_chart.png", Size: 42, MimeType: "image/png"},
+				{
+					Filename:    "file_123_chart.png",
+					Size:        42,
+					MimeType:    "image/png",
+					VirtualPath: "/mnt/user-data/uploads/file_123_chart.png",
+					ArtifactURL: "/api/threads/thread-1/artifacts/mnt/user-data/uploads/file_123_chart.png",
+				},
 			},
 		},
 		nil,
@@ -975,11 +1077,90 @@ func TestRunAgentTurnForwardsRuntimeUploadMimeType(t *testing.T) {
 	if got := file["mime_type"]; got != "image/png" {
 		t.Fatalf("mime_type = %#v, want image/png", got)
 	}
+	if got := file["path"]; got != "/mnt/user-data/uploads/file_123_chart.png" {
+		t.Fatalf("path = %#v, want upload virtual path", got)
+	}
+	if got := file["artifact_url"]; got != "/api/threads/thread-1/artifacts/mnt/user-data/uploads/file_123_chart.png" {
+		t.Fatalf("artifact_url = %#v, want thread upload artifact url", got)
+	}
 	if got := requestPayload["on_disconnect"]; got != "cancel" {
 		t.Fatalf("on_disconnect = %#v, want cancel", got)
 	}
 	if got := requestPayload["multitask_strategy"]; got != "interrupt" {
 		t.Fatalf("multitask_strategy = %#v, want interrupt", got)
+	}
+}
+
+func TestStageInputFilesForThreadExposesWorkspaceUploadMetadata(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
+	tokenID := uuid.New()
+	threadID := "thread-sdk-uploads"
+	fileID := "file_1234567890abcdef"
+	storageRef := filepath.Join("users", userID.String(), "public-api-inputs", fileID, "source-report.md")
+	sourcePath := filepath.Join(baseDir, storageRef)
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		t.Fatalf("mkdir source: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("# Source report"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	mimeType := "text/markdown"
+	svc := &PublicAPIService{
+		fs: fsStore,
+		inputFileRepo: &stubPublicAPIInputFileRepo{
+			items: map[string]*model.PublicAPIInputFile{
+				fileID + "|" + tokenID.String(): {
+					ID:         uuid.New(),
+					FileID:     fileID,
+					APITokenID: tokenID,
+					UserID:     userID,
+					Purpose:    "analysis",
+					Filename:   "source-report.md",
+					StorageRef: filepath.ToSlash(storageRef),
+					MimeType:   &mimeType,
+					SizeBytes:  int64(len("# Source report")),
+					CreatedAt:  time.Now().UTC(),
+				},
+			},
+		},
+	}
+
+	uploads, err := svc.stageInputFilesForThread(
+		context.Background(),
+		userID.String(),
+		threadID,
+		tokenID,
+		[]string{fileID},
+	)
+	if err != nil {
+		t.Fatalf("stageInputFilesForThread: %v", err)
+	}
+	if len(uploads) != 1 {
+		t.Fatalf("expected one upload, got %#v", uploads)
+	}
+
+	staged := uploads[0]
+	if staged.Filename != "source-report--1234567890.md" {
+		t.Fatalf("Filename = %q", staged.Filename)
+	}
+	if staged.VirtualPath != "/mnt/user-data/uploads/source-report--1234567890.md" {
+		t.Fatalf("VirtualPath = %q", staged.VirtualPath)
+	}
+	if staged.ArtifactURL != "/api/threads/thread-sdk-uploads/artifacts/mnt/user-data/uploads/source-report--1234567890.md" {
+		t.Fatalf("ArtifactURL = %q", staged.ArtifactURL)
+	}
+
+	stagedPath := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"uploads",
+		staged.Filename,
+	)
+	if body, err := os.ReadFile(stagedPath); err != nil || string(body) != "# Source report" {
+		t.Fatalf("staged file body = %q err=%v", string(body), err)
 	}
 }
 
@@ -1174,6 +1355,67 @@ func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *tes
 	}
 	if snapshot.Events[0].Code != "runtime_error" {
 		t.Fatalf("expected runtime_error code, got %#v", snapshot.Events[0].Code)
+	}
+}
+
+func TestFinishInvocationWithErrorAttachesAndClosesRunningTrace(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	threadID := "thread-1"
+	traceID := "trace-1"
+	agentName := "demo-agent"
+	traceRepo := &stubPublicAPITraceRepo{
+		latest: &repository.AgentTraceRecord{
+			TraceID:      traceID,
+			RootRunID:    "run-1",
+			ThreadID:     &threadID,
+			UserID:       &userID,
+			AgentName:    &agentName,
+			StartedAt:    time.Unix(43, 0).UTC(),
+			Status:       "running",
+			InputTokens:  10,
+			OutputTokens: 2,
+			TotalTokens:  12,
+		},
+	}
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	svc := &PublicAPIService{invocationRepo: invocationRepo, traceRepo: traceRepo}
+	invocation := &model.PublicAPIInvocation{
+		ID:           uuid.New(),
+		ResponseID:   "turn_failed_trace",
+		Surface:      "turns",
+		UserID:       userID,
+		AgentName:    agentName,
+		ThreadID:     threadID,
+		RequestModel: "kimi-k2.6",
+		Status:       "in_progress",
+		RequestJSON:  json.RawMessage(`{"input":{"text":"fail"}}`),
+		ResponseJSON: json.RawMessage(`{}`),
+		CreatedAt:    time.Unix(42, 0).UTC(),
+	}
+
+	err := svc.finishInvocationWithError(context.Background(), invocation, errors.New("snapshot missing"), nil)
+
+	if err == nil {
+		t.Fatal("expected public error")
+	}
+	stored := invocationRepo.byResponseID["turn_failed_trace"]
+	if stored == nil || stored.TraceID == nil || *stored.TraceID != traceID {
+		t.Fatalf("expected stored trace id, got %#v", stored)
+	}
+	if stored.InputTokens != 10 || stored.TotalTokens != 12 {
+		t.Fatalf("expected trace usage copied, got input=%d total=%d", stored.InputTokens, stored.TotalTokens)
+	}
+	if traceRepo.finishedID != traceID || traceRepo.finishedStat != "error" || traceRepo.finishedErr == nil || *traceRepo.finishedErr != "snapshot missing" {
+		t.Fatalf("trace was not closed as error: %#v", traceRepo)
+	}
+	var snapshot model.TurnSnapshot
+	if unmarshalErr := json.Unmarshal(stored.ResponseJSON, &snapshot); unmarshalErr != nil {
+		t.Fatalf("unmarshal failed snapshot: %v", unmarshalErr)
+	}
+	if snapshot.TraceID != traceID || snapshot.Usage.TotalTokens != 12 {
+		t.Fatalf("snapshot missing trace data: %#v", snapshot)
 	}
 }
 
@@ -1386,6 +1628,194 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 	}
 	if ledgerArtifacts[0].VirtualPath != "/mnt/user-data/outputs/summary.md" {
 		t.Fatalf("unexpected virtual path %#v", ledgerArtifacts[0])
+	}
+}
+
+func TestGetFileRelatedContentReadsSiblingAssets(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
+	tokenID := uuid.New()
+	invocationID := uuid.New()
+	threadID := "thread-related-assets"
+	outputDir := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"outputs",
+		"report",
+	)
+	assetDir := filepath.Join(outputDir, "assets")
+	if err := os.MkdirAll(assetDir, 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "report.html"), []byte("<script src=\"./assets/app.js\"></script>"), 0o644); err != nil {
+		t.Fatalf("write html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetDir, "app.js"), []byte("console.log('ok');"), 0o644); err != nil {
+		t.Fatalf("write js: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "prediction-events.json"), []byte(`{"events":[]}`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+
+	htmlMime := "text/html; charset=utf-8"
+	jsMime := "application/javascript"
+	jsonMime := "application/json"
+	invocation := model.PublicAPIInvocation{
+		ID:         invocationID,
+		APITokenID: tokenID,
+		UserID:     userID,
+		ThreadID:   threadID,
+	}
+	htmlArtifact := model.PublicAPIArtifact{
+		ID:           uuid.New(),
+		InvocationID: invocationID,
+		ResponseID:   "resp_related",
+		FileID:       "file_html",
+		VirtualPath:  "/mnt/user-data/outputs/report/report.html",
+		StorageRef:   "outputs/report/report.html",
+		MimeType:     &htmlMime,
+	}
+	jsArtifact := model.PublicAPIArtifact{
+		ID:           uuid.New(),
+		InvocationID: invocationID,
+		ResponseID:   "resp_related",
+		FileID:       "file_js",
+		VirtualPath:  "/mnt/user-data/outputs/report/assets/app.js",
+		StorageRef:   "outputs/report/assets/app.js",
+		MimeType:     &jsMime,
+	}
+	jsonArtifact := model.PublicAPIArtifact{
+		ID:           uuid.New(),
+		InvocationID: invocationID,
+		ResponseID:   "resp_related",
+		FileID:       "file_json",
+		VirtualPath:  "/mnt/user-data/outputs/report/prediction-events.json",
+		StorageRef:   "outputs/report/prediction-events.json",
+		MimeType:     &jsonMime,
+	}
+	svc := &PublicAPIService{
+		fs: fsStore,
+		invocationRepo: &stubPublicAPIInvocationRepo{
+			artifactByFileID: map[string]stubPublicAPIArtifactRecord{
+				"file_html": {
+					artifact:   htmlArtifact,
+					invocation: invocation,
+				},
+			},
+			artifactByVirtualKey: map[string]*model.PublicAPIArtifact{
+				testArtifactVirtualKey(invocationID, jsArtifact.VirtualPath):   &jsArtifact,
+				testArtifactVirtualKey(invocationID, jsonArtifact.VirtualPath): &jsonArtifact,
+			},
+		},
+	}
+
+	jsResult, err := svc.GetFileRelatedContent(context.Background(), "file_html", "assets/app.js", tokenID)
+	if err != nil {
+		t.Fatalf("GetFileRelatedContent js: %v", err)
+	}
+	if string(jsResult.Body) != "console.log('ok');" {
+		t.Fatalf("unexpected js body %q", string(jsResult.Body))
+	}
+	if jsResult.Filename != "app.js" || jsResult.ContentType != jsMime {
+		t.Fatalf("unexpected js result %#v", jsResult)
+	}
+
+	jsonResult, err := svc.GetFileRelatedContent(context.Background(), "file_html", "prediction-events.json", tokenID)
+	if err != nil {
+		t.Fatalf("GetFileRelatedContent json: %v", err)
+	}
+	if string(jsonResult.Body) != `{"events":[]}` {
+		t.Fatalf("unexpected json body %q", string(jsonResult.Body))
+	}
+	if jsonResult.Filename != "prediction-events.json" || jsonResult.ContentType != jsonMime {
+		t.Fatalf("unexpected json result %#v", jsonResult)
+	}
+}
+
+func TestGetFileRelatedContentRejectsEscapingOrUnregisteredPaths(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
+	tokenID := uuid.New()
+	invocationID := uuid.New()
+	otherInvocationID := uuid.New()
+	threadID := "thread-related-reject"
+	outputDir := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"outputs",
+		"report",
+	)
+	assetDir := filepath.Join(outputDir, "assets")
+	if err := os.MkdirAll(assetDir, 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "report.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("write html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetDir, "secret.js"), []byte("alert('secret');"), 0o644); err != nil {
+		t.Fatalf("write secret asset: %v", err)
+	}
+
+	htmlMime := "text/html; charset=utf-8"
+	jsMime := "application/javascript"
+	invocation := model.PublicAPIInvocation{
+		ID:         invocationID,
+		APITokenID: tokenID,
+		UserID:     userID,
+		ThreadID:   threadID,
+	}
+	htmlArtifact := model.PublicAPIArtifact{
+		ID:           uuid.New(),
+		InvocationID: invocationID,
+		ResponseID:   "resp_reject",
+		FileID:       "file_html",
+		VirtualPath:  "/mnt/user-data/outputs/report/report.html",
+		StorageRef:   "outputs/report/report.html",
+		MimeType:     &htmlMime,
+	}
+	otherInvocationArtifact := model.PublicAPIArtifact{
+		ID:           uuid.New(),
+		InvocationID: otherInvocationID,
+		ResponseID:   "resp_other",
+		FileID:       "file_secret",
+		VirtualPath:  "/mnt/user-data/outputs/report/assets/secret.js",
+		StorageRef:   "outputs/report/assets/secret.js",
+		MimeType:     &jsMime,
+	}
+	svc := &PublicAPIService{
+		fs: fsStore,
+		invocationRepo: &stubPublicAPIInvocationRepo{
+			artifactByFileID: map[string]stubPublicAPIArtifactRecord{
+				"file_html": {
+					artifact:   htmlArtifact,
+					invocation: invocation,
+				},
+			},
+			artifactByVirtualKey: map[string]*model.PublicAPIArtifact{
+				// The file exists on disk, but the base artifact's invocation has
+				// not exposed it. Public relative reads must honor the artifact
+				// ledger rather than become a directory-level file server.
+				testArtifactVirtualKey(otherInvocationID, otherInvocationArtifact.VirtualPath): &otherInvocationArtifact,
+			},
+		},
+	}
+
+	for _, relativePath := range []string{"../secret.txt", "assets/../secret.js", "/mnt/user-data/outputs/report/assets/secret.js"} {
+		_, err := svc.GetFileRelatedContent(context.Background(), "file_html", relativePath, tokenID)
+		var publicErr *PublicAPIError
+		if !errors.As(err, &publicErr) || publicErr.Code != "file_not_found" {
+			t.Fatalf("path %q error = %v, want file_not_found", relativePath, err)
+		}
+	}
+
+	_, err := svc.GetFileRelatedContent(context.Background(), "file_html", "assets/secret.js", tokenID)
+	var publicErr *PublicAPIError
+	if !errors.As(err, &publicErr) || publicErr.Code != "file_not_found" {
+		t.Fatalf("unregistered sibling error = %v, want file_not_found", err)
 	}
 }
 

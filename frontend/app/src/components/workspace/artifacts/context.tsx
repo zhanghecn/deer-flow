@@ -23,6 +23,7 @@ export interface ArtifactPreviewTarget {
 export interface ArtifactsContextType {
   artifacts: string[];
   setArtifacts: (artifacts: string[]) => void;
+  activeThreadId: string | null;
 
   selectedArtifact: string | null;
   previewTarget: ArtifactPreviewTarget | null;
@@ -53,6 +54,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
     useState<ArtifactPreviewTarget | null>(null);
   const revealSequenceRef = useRef(0);
   const activeThreadIdRef = useRef<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [autoSelect, setAutoSelect] = useState(true);
   const [open, setOpen] = useState(env.VITE_STATIC_WEBSITE_ONLY === "true");
   const [autoOpen, setAutoOpen] = useState(true);
@@ -142,6 +144,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       }
       if (activeThreadIdRef.current === null) {
         activeThreadIdRef.current = normalizedThreadId;
+        setActiveThreadId(normalizedThreadId);
         syncWorkspaceThread?.(normalizedThreadId);
         return;
       }
@@ -149,6 +152,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
         return;
       }
       activeThreadIdRef.current = normalizedThreadId;
+      setActiveThreadId(normalizedThreadId);
       syncWorkspaceThread?.(normalizedThreadId);
       reset();
     },
@@ -158,6 +162,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const value: ArtifactsContextType = {
     artifacts,
     setArtifacts,
+    activeThreadId,
 
     open,
     autoOpen,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -169,6 +170,34 @@ func (h *PublicAPIHandler) GetFileContent(c *gin.Context) {
 	c.Data(http.StatusOK, fileResult.ContentType, fileResult.Body)
 }
 
+func (h *PublicAPIHandler) GetFileRelatedContent(c *gin.Context) {
+	relativePath := strings.TrimPrefix(c.Param("path"), "/")
+	if relativePath == "" {
+		relativePath = c.Param("filename")
+	}
+	if strings.HasPrefix(c.FullPath(), "/v1/files/:id/assets/") && !strings.HasPrefix(relativePath, "assets/") {
+		relativePath = path.Join("assets", relativePath)
+	}
+
+	fileResult, err := h.svc.GetFileRelatedContent(
+		c.Request.Context(),
+		c.Param("id"),
+		relativePath,
+		middleware.GetAPITokenID(c),
+	)
+	if err != nil {
+		writePublicAPIError(c, err)
+		return
+	}
+
+	disposition := "inline"
+	if strings.EqualFold(strings.TrimSpace(c.Query("download")), "true") {
+		disposition = "attachment"
+	}
+	c.Header("Content-Disposition", disposition+`; filename="`+fileResult.Filename+`"`)
+	c.Data(http.StatusOK, fileResult.ContentType, fileResult.Body)
+}
+
 func (h *PublicAPIHandler) CreateFile(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
@@ -205,18 +234,10 @@ func (h *PublicAPIAuditHandler) ListInvocations(c *gin.Context) {
 		return
 	}
 
-	filter := model.PublicAPIInvocationFilter{
-		AgentName: strings.TrimSpace(c.Query("agent_name")),
-		Limit:     parseQueryInt(c.Query("limit"), 50),
-		Offset:    parseQueryInt(c.Query("offset"), 0),
-	}
-	if tokenIDText := strings.TrimSpace(c.Query("api_token_id")); tokenIDText != "" {
-		tokenID, err := uuid.Parse(tokenIDText)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid api_token_id"})
-			return
-		}
-		filter.APITokenID = &tokenID
+	filter, err := publicAPIInvocationFilterFromQuery(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
 	}
 
 	items, err := h.svc.ListInvocations(c.Request.Context(), userID, filter)
@@ -229,6 +250,26 @@ func (h *PublicAPIAuditHandler) ListInvocations(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func publicAPIInvocationFilterFromQuery(c *gin.Context) (model.PublicAPIInvocationFilter, error) {
+	filter := model.PublicAPIInvocationFilter{
+		AgentName:    strings.TrimSpace(c.Query("agent_name")),
+		ThreadID:     strings.TrimSpace(c.Query("thread_id")),
+		SessionID:    strings.TrimSpace(c.Query("session_id")),
+		Surface:      strings.TrimSpace(c.Query("surface")),
+		FinishedOnly: parseQueryBool(c.Query("finished_only"), false),
+		Limit:        parseQueryInt(c.Query("limit"), 50),
+		Offset:       parseQueryInt(c.Query("offset"), 0),
+	}
+	if tokenIDText := strings.TrimSpace(c.Query("api_token_id")); tokenIDText != "" {
+		tokenID, err := uuid.Parse(tokenIDText)
+		if err != nil {
+			return filter, errors.New("invalid api_token_id")
+		}
+		filter.APITokenID = &tokenID
+	}
+	return filter, nil
 }
 
 func buildPublicAPIAuthContext(c *gin.Context) service.PublicAPIAuthContext {
@@ -475,6 +516,14 @@ func writeSSEComment(c *gin.Context, comment string) error {
 
 func parseQueryInt(raw string, fallback int) int {
 	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func parseQueryBool(raw string, fallback bool) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(raw))
 	if err != nil {
 		return fallback
 	}

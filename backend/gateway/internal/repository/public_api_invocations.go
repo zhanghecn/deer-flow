@@ -343,6 +343,56 @@ func (r *PublicAPIInvocationRepo) GetArtifactByFileID(
 	return &artifact, &invocation, nil
 }
 
+func (r *PublicAPIInvocationRepo) GetArtifactByVirtualPath(
+	ctx context.Context,
+	invocationID uuid.UUID,
+	virtualPath string,
+	apiTokenID uuid.UUID,
+) (*model.PublicAPIArtifact, error) {
+	row := r.pool.QueryRow(
+		ctx,
+		`SELECT
+			a.id,
+			a.invocation_id,
+			a.response_id,
+			a.file_id,
+			a.virtual_path,
+			a.storage_ref,
+			a.mime_type,
+			a.size_bytes,
+			a.sha256,
+			a.created_at
+		FROM public_api_artifacts a
+		JOIN public_api_invocations i ON i.id = a.invocation_id
+		WHERE a.invocation_id = $1 AND a.virtual_path = $2 AND i.api_token_id = $3
+		LIMIT 1`,
+		invocationID,
+		strings.TrimSpace(virtualPath),
+		apiTokenID,
+	)
+
+	var artifact model.PublicAPIArtifact
+	if err := row.Scan(
+		&artifact.ID,
+		&artifact.InvocationID,
+		&artifact.ResponseID,
+		&artifact.FileID,
+		&artifact.VirtualPath,
+		&artifact.StorageRef,
+		&artifact.MimeType,
+		&artifact.SizeBytes,
+		&artifact.SHA256,
+		&artifact.CreatedAt,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &artifact, nil
+}
+
 func (r *PublicAPIInvocationRepo) ListByUser(
 	ctx context.Context,
 	userID uuid.UUID,
