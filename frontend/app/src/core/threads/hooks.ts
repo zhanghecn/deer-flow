@@ -7,7 +7,6 @@ import type {
 import { useStream } from "@langchain/langgraph-sdk/react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
@@ -917,16 +916,9 @@ function shouldSuppressOwnedMissingRunReplay(
 
   // Local ownership means this tab is already running the thread recovery
   // flow. A stale run id should quietly fall back to state hydration instead
-  // of surfacing a fake terminal error toast.
+  // of surfacing a fake terminal error.
   clearStoredActiveRunId(threadId);
   return true;
-}
-
-function buildThreadErrorToastId(
-  threadId: string | null | undefined,
-  message: string,
-) {
-  return `thread-error:${threadId ?? "unknown"}:${message}`;
 }
 
 function buildPassthroughThreadHistory<
@@ -1362,11 +1354,8 @@ export function useThreadStream({
 
       lastErrorMessageRef.current = message;
       // Reopened threads can trigger the same persisted failure through more
-      // than one hydration path. Keep a stable toast id per thread/message so
-      // the UI updates the existing notification instead of stacking clones.
-      toast.error(message, {
-        id: buildThreadErrorToastId(activeThreadId, message),
-      });
+      // than one hydration path. Keep the optional callback deduped; the chat
+      // surface itself renders errors from executionStatus instead of a popup.
       onError?.(message);
       return message;
     },

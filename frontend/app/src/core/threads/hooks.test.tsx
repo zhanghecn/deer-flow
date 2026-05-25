@@ -299,10 +299,11 @@ describe("useThreadStream", () => {
     expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
-  it("surfaces stream errors through a toast once per distinct message", async () => {
+  it("surfaces stream errors through execution status without a toast", async () => {
+    const onError = vi.fn();
     window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
 
-    renderHook(
+    const { result } = renderHook(
       () =>
         useThreadStream({
           threadId: "thread-1",
@@ -311,6 +312,7 @@ describe("useThreadStream", () => {
             mode: "pro",
             agent_status: "dev",
           },
+          onError,
         }),
       { wrapper: createWrapper() },
     );
@@ -322,13 +324,14 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "Connection error",
-        expect.objectContaining({
-          id: expect.stringContaining("thread-1"),
-        }),
-      );
+      expect(result.current[4]).toMatchObject({
+        event: "failed",
+        error: "Connection error",
+        terminal: true,
+      });
     });
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("Connection error");
 
     act(() => {
       emitStream({
@@ -336,7 +339,8 @@ describe("useThreadStream", () => {
       });
     });
 
-    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it("keeps local cancellation errors silent", async () => {
@@ -460,21 +464,17 @@ describe("useThreadStream", () => {
       await Promise.resolve();
     });
 
-    expect(toastError).toHaveBeenCalledWith(
-      "429 We're receiving too many requests right now.",
-      expect.objectContaining({
-        id: expect.stringContaining("thread-1"),
-      }),
-    );
     expect(result.current[4]).toMatchObject({
       event: "failed",
       phase_kind: "run",
       error: "429 We're receiving too many requests right now.",
       terminal: true,
     });
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("does not replay the same persisted actionable error twice while hydration is loading", async () => {
+    const onError = vi.fn();
     const rateLimitError =
       "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')";
 
@@ -491,6 +491,7 @@ describe("useThreadStream", () => {
             mode: "pro",
             agent_status: "dev",
           },
+          onError,
         }),
       { wrapper: createWrapper() },
     );
@@ -518,7 +519,7 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledTimes(1);
     });
 
     act(() => {
@@ -550,7 +551,8 @@ describe("useThreadStream", () => {
       });
     });
 
-    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces submit failures to the user", async () => {
@@ -582,12 +584,12 @@ describe("useThreadStream", () => {
       );
     });
 
-    expect(toastError).toHaveBeenCalledWith(
-      "429 Too Many Requests",
-      expect.objectContaining({
-        id: expect.stringContaining("thread-1"),
-      }),
-    );
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      error: "429 Too Many Requests",
+      terminal: true,
+    });
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("keeps subagents enabled when stale local settings disabled them", async () => {
@@ -846,9 +848,7 @@ describe("useThreadStream", () => {
       error: "400 provider failed",
       terminal: true,
     });
-    expect(toastError).toHaveBeenCalledWith("400 provider failed", {
-      id: "thread-error:thread-1:400 provider failed",
-    });
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("lets persisted task errors correct a premature completed terminal state", async () => {
@@ -926,9 +926,7 @@ describe("useThreadStream", () => {
         terminal: true,
       });
     });
-    expect(toastError).toHaveBeenCalledWith("400 provider failed", {
-      id: "thread-error:thread-1:400 provider failed",
-    });
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("surfaces hydrated interrupts from thread state recovery", async () => {
@@ -2544,9 +2542,12 @@ describe("useThreadStream", () => {
       });
     });
     expect(result.current[0].isLoading).toBe(false);
-    expect(toastError).toHaveBeenCalledWith("503 upstream", {
-      id: "thread-error:thread-1:503 upstream",
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      error: "503 upstream",
+      terminal: true,
     });
+    expect(toastError).not.toHaveBeenCalled();
     expect(
       window.sessionStorage.getItem("openagents:stream-owner:thread-1"),
     ).toBeNull();

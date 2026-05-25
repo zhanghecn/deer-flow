@@ -846,38 +846,6 @@ export function MessageList({
       : messageQuestion;
   }, [currentTurnMessages, threadInterrupt]);
   const visibleExecutionStatus = pendingQuestion ? null : executionStatus;
-  const inlineExecutionLabel = useMemo(() => {
-    if (!visibleExecutionStatus) {
-      return null;
-    }
-
-    if (visibleExecutionStatus.event === "retrying") {
-      return visibleExecutionStatus.tool_name
-        ? `Retrying ${visibleExecutionStatus.tool_name}`
-        : "Retrying model";
-    }
-    if (
-      visibleExecutionStatus.event === "failed" ||
-      visibleExecutionStatus.event === "retry_failed"
-    ) {
-      return visibleExecutionStatus.error?.trim() ?? "Run failed";
-    }
-    if (visibleExecutionStatus.event === "interrupted") {
-      return "Run stopped";
-    }
-    if (visibleExecutionStatus.event === "completed") {
-      return "Run completed";
-    }
-    if (visibleExecutionStatus.phase_kind === "tool") {
-      return visibleExecutionStatus.tool_name
-        ? `Running ${visibleExecutionStatus.tool_name}`
-        : "Running tool";
-    }
-    if (visibleExecutionStatus.phase === "thinking_finalize") {
-      return "Finalizing response";
-    }
-    return "Thinking";
-  }, [visibleExecutionStatus]);
 
   useEffect(() => {
     for (const update of subtaskUpdates) {
@@ -959,12 +927,6 @@ export function MessageList({
         )}
         {visibleExecutionStatus ? (
           <ExecutionStatusBanner executionStatus={visibleExecutionStatus} />
-        ) : inlineExecutionLabel ? (
-          <div className="flex w-full justify-center">
-            <div className="w-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-              {inlineExecutionLabel}
-            </div>
-          </div>
         ) : null}
         {thread.isLoading && <StreamingIndicator className="my-4" />}
         <div style={{ height: `${paddingBottom}px` }} />
