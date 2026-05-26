@@ -88,7 +88,10 @@ export function describeType(value: unknown): string {
 export function toRawText(value: unknown): string {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value, null, 2);
+    const serialized = JSON.stringify(value, null, 2);
+    // JSON.stringify(undefined) returns undefined rather than throwing; the
+    // inspector preview contract still needs a concrete string.
+    return typeof serialized === "string" ? serialized : String(value);
   } catch {
     return String(value);
   }

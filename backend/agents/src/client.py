@@ -38,7 +38,7 @@ from src.agents.lead_agent.agent import (
     _build_openagents_middlewares,
     build_backend,
 )
-from src.agents.lead_agent.prompt import apply_prompt_template
+from src.agents.lead_agent.prompt import apply_prompt_message_template as apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.app_config import get_app_config, reload_app_config
@@ -51,9 +51,9 @@ from src.config.extensions_config import (
 )
 from src.config.mcp_profile_migration import migrate_legacy_mcp_profile_layout
 from src.config.paths import get_paths
-from src.mcp.library import load_mcp_profile, resolve_mcp_profile_file, write_mcp_profile
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
+from src.mcp.library import load_mcp_profile, resolve_mcp_profile_file, write_mcp_profile
 from src.models import create_chat_model
 from src.query_engine import CanonicalQueryEngine, CanonicalRunEvent
 
@@ -279,6 +279,9 @@ class OpenAgentsClient:
                 memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
                 agent_config=lead_agent_config,
             ),
+            # The prompt message already carries cache-aware runtime blocks, so
+            # do not append the SDK's branded default persona.
+            "base_prompt": None,
             "middleware": _build_openagents_middlewares(model_config),
             "subagents": loaded_subagents.custom_subagents if loaded_subagents is not None else None,
             "general_purpose_tools": loaded_subagents.general_purpose_tools if loaded_subagents is not None else tools,

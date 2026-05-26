@@ -11,7 +11,7 @@ def test_archived_lead_agent_prompts_include_runtime_path_guardrails():
         repo_root / ".openagents" / "system" / "agents" / "prod" / "lead_agent" / "AGENTS.md",
     ]
     required_snippets = [
-        "You are the default system lead agent for OpenAgents",
+        "You are the default lead agent for this runtime",
         "If a task matches an attached copied skill, read its copied `SKILL.md`",
         "Skill discovery is local-first",
         "Persist agent changes for future runs with `setup_agent`.",

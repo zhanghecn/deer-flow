@@ -135,7 +135,14 @@ export interface TracePayloadSection {
   key: string;
   title: string;
   description: string;
-  kind: "reasoning" | "messages" | "tools" | "config" | "state" | "metadata";
+  kind:
+    | "reasoning"
+    | "prompt"
+    | "messages"
+    | "tools"
+    | "config"
+    | "state"
+    | "metadata";
   truncated: boolean;
   value: unknown;
 }
@@ -650,6 +657,131 @@ function normalizeMessageCollection(
       return toRecord(normalizedItem);
     })
     .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+function extractTextBlockContent(value: unknown): string {
+  const normalized = normalizeTraceValue(value);
+  if (typeof normalized === "string") return normalized.trim();
+  if (Array.isArray(normalized)) {
+    return normalized
+      .map((item) => extractTextBlockContent(item))
+      .filter((item) => item.length > 0)
+      .join("\n\n");
+  }
+
+  const payload = toRecord(normalized);
+  if (!payload) return "";
+  if (typeof payload.text === "string") return payload.text.trim();
+  if (typeof payload.content === "string") return payload.content.trim();
+  if (Array.isArray(payload.content)) {
+    return extractTextBlockContent(payload.content);
+  }
+  return "";
+}
+
+function promptLayerLabel(
+  text: string,
+  blockIndex: number,
+  cacheControl: unknown,
+): string {
+  if (text.includes("<agent_instructions")) return "agent_instructions";
+  if (
+    text.includes("<attached_skills>") ||
+    text.includes("<memory>") ||
+    text.includes("<question_tool_contract>") ||
+    text.includes("<self_authoring>") ||
+    text.includes("<current_date>")
+  ) {
+    return "runtime_context";
+  }
+  if (hasValue(cacheControl) || blockIndex === 0) return "platform_system";
+  if (
+    blockIndex > 2 ||
+    text.includes("## Following Conventions") ||
+    text.includes("## `task` (subagent spawner)") ||
+    text.includes("You have access to a `task` tool")
+  ) {
+    return "middleware_prompt";
+  }
+  return "system_prompt";
+}
+
+function extractPromptSubsections(text: string): Array<{
+  name: string;
+  character_count: number;
+  content: string;
+}> {
+  const sections: Array<{
+    name: string;
+    character_count: number;
+    content: string;
+  }> = [];
+  const tagPattern =
+    /<([A-Za-z_][\w:-]*)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = tagPattern.exec(text)) !== null) {
+    const prefix = text.slice(cursor, match.index).trim();
+    if (prefix) {
+      sections.push({
+        name: "generic_runtime",
+        character_count: prefix.length,
+        content: prefix,
+      });
+    }
+    const content = String(match[2] ?? "").trim();
+    sections.push({
+      name: match[1],
+      character_count: content.length,
+      content,
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  const suffix = text.slice(cursor).trim();
+  if (suffix) {
+    sections.push({
+      name: sections.length === 0 ? "text" : "trailing_text",
+      character_count: suffix.length,
+      content: suffix,
+    });
+  }
+
+  return sections;
+}
+
+function extractPromptLayerView(messages: unknown): unknown[] {
+  const normalizedMessages = normalizeMessageCollection(messages);
+  const layers: unknown[] = [];
+
+  for (const [messageIndex, message] of normalizedMessages.entries()) {
+    const role = String(message.role ?? message.type ?? "").toLowerCase();
+    if (role !== "system") continue;
+
+    const content = normalizeTraceValue(message.content);
+    const blocks = Array.isArray(content) ? content : [content];
+    for (const [blockIndex, block] of blocks.entries()) {
+      const text = extractTextBlockContent(block);
+      if (!text) continue;
+      const blockRecord = toRecord(normalizeTraceValue(block));
+      const cacheControl = blockRecord?.cache_control;
+
+      // The layer labels are a trace-only explanation of prompt assembly. They
+      // are derived from explicit content-block boundaries, not from user prose.
+      layers.push({
+        layer: promptLayerLabel(text, blockIndex, cacheControl),
+        message_index: messageIndex,
+        block_index: blockIndex,
+        cache_control: hasValue(cacheControl) ? cacheControl : undefined,
+        character_count: text.length,
+        preview: truncateText(text, 180),
+        sections: extractPromptSubsections(text),
+      });
+    }
+  }
+
+  return layers;
 }
 
 function selectRecentMessages(messages: unknown, limit = 2): unknown {
@@ -1534,6 +1666,21 @@ export function extractRunSections(
     }
 
     const requestMessages = modelRequest?.messages;
+    const promptLayers = extractPromptLayerView(requestMessages);
+    if (promptLayers.length > 0) {
+      sections.push(
+        makeSection(
+          "request-prompt-layers",
+          t("Prompt Layers"),
+          t(
+            "System prompt blocks grouped by platform, agent instructions, runtime context, and middleware.",
+          ),
+          "prompt",
+          promptLayers,
+        ),
+      );
+    }
+
     if (hasValue(requestMessages)) {
       sections.push(
         makeSection(

@@ -1,17 +1,34 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import Any, Literal
+
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.config.agents_config import AgentConfig, AgentMemoryConfig, load_agent_config, load_agents_md, resolve_authored_agent_dir
 from src.config.builtin_agents import ensure_builtin_agent_archive
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.skills.parser import parse_skill_file
 
-SECTION_THINKING_STYLE = """
-<thinking_style>
-- Think briefly before acting: note what is clear, missing, and risky.
-- Keep thinking as an outline, not a drafted answer.
-- After thinking, provide the actual response.
-</thinking_style>
+PromptLayer = Literal["platform_system", "agent_instructions", "runtime_context"]
+_PROMPT_LAYER_ORDER: tuple[PromptLayer, ...] = ("platform_system", "agent_instructions", "runtime_context")
+
+
+@dataclass(frozen=True)
+class PromptSection:
+    """A model-visible prompt section with explicit layer metadata.
+
+    Platform rules stay separate from agent-owned instructions and runtime
+    context so the provider can cache only the stable prefix.
+    """
+
+    name: str
+    content: str
+    layer: PromptLayer = "runtime_context"
+
+
+GENERIC_RUNTIME_BASE_PROMPT = """
+Use the available tools to complete the user's task. Ask for blocking information only when it is actually needed, and verify completed work before the final response.
 """.strip()
 
 SECTION_WORKING_DIRECTORY = """
@@ -26,13 +43,6 @@ SECTION_WORKING_DIRECTORY = """
 - If the user specified an output filename or format, use it exactly
 - Present only final deliverables from `/mnt/user-data/outputs` with `present_files`
 </working_directory>
-""".strip()
-
-SECTION_RESPONSE_STYLE = """
-<response_style>
-- Be concise and natural.
-- Prefer prose unless structure materially helps.
-</response_style>
 """.strip()
 
 SECTION_EVIDENCE = """
@@ -117,12 +127,52 @@ def _get_memory_context(
 """
 
 
+def _render_prompt_sections(sections: list[PromptSection]) -> str:
+    """Join non-empty prompt sections without leaking cache boundary metadata."""
+    return "\n\n".join(section.content.strip() for section in sections if section.content.strip())
+
+
+def _join_section_content(sections: list[PromptSection]) -> str:
+    """Join already-filtered sections into one model-visible text block."""
+    return "\n\n".join(section.content.strip() for section in sections)
+
+
+def build_prompt_content_blocks(sections: list[PromptSection]) -> list[dict[str, Any]]:
+    """Build provider-ready content blocks from prompt sections.
+
+    Claude Code keeps cache-friendly prompt prefixes stable. We keep the same
+    byte-stable prefix idea, but cloud-agent contracts need one more distinction:
+    platform rules are cached, agent-owned AGENTS.md is system-level but
+    uncached, and per-turn runtime context follows last.
+    """
+    blocks: list[dict[str, Any]] = []
+    for layer in _PROMPT_LAYER_ORDER:
+        layer_sections = [
+            section
+            for section in sections
+            if section.content.strip() and section.layer == layer
+        ]
+        if not layer_sections:
+            continue
+
+        block: dict[str, Any] = {"type": "text", "text": _join_section_content(layer_sections)}
+        if layer == "platform_system":
+            block["cache_control"] = {"type": "ephemeral"}
+        blocks.append(block)
+    return blocks
+
+
+def build_prompt_system_message(sections: list[PromptSection]) -> SystemMessage:
+    """Return a SystemMessage that preserves prompt section cache boundaries."""
+    return SystemMessage(content_blocks=build_prompt_content_blocks(sections))
+
+
 def get_agents_md_section(agent_name: str | None, agent_status: str = "dev") -> str:
-    """Return the AGENTS.md content wrapped in XML tags for the system prompt."""
+    """Return agent-owned AGENTS.md content wrapped as system instructions."""
     ensure_builtin_agent_archive(agent_name, status=agent_status)
     content = load_agents_md(agent_name, status=agent_status)
     if content:
-        return f"<agents_md>\n{content}\n</agents_md>\n"
+        return f"<agent_instructions source=\"AGENTS.md\">\n{content}\n</agent_instructions>\n"
     return ""
 
 
@@ -239,15 +289,21 @@ def _load_attached_skills_section(
     return "\n".join(entries)
 
 
-def apply_prompt_template(
+def build_prompt_sections(
     *,
     user_id: str | None = None,
     agent_name: str | None = None,
     agent_status: str = "dev",
     memory_config: AgentMemoryConfig | None = None,
     agent_config: AgentConfig | None = None,
-) -> str:
-    """Render the base runtime system prompt without per-turn command state."""
+) -> list[PromptSection]:
+    """Build ordered prompt sections with cache-stability metadata.
+
+    The order intentionally mirrors Claude Code's prompt assembly pattern:
+    compact generic runtime rules form the cacheable prefix, then agent-owned
+    and runtime-varying sections follow. Do not add persona text here; identity
+    belongs in AGENTS.md.
+    """
 
     # `tool_names: []` is an operator-selected hard whitelist. Only mention the
     # interrupting question tool when the runtime can actually expose it.
@@ -263,22 +319,98 @@ def apply_prompt_template(
         memory_config=memory_config or AgentMemoryConfig(),
     )
 
-    sections = [
-        f"<role>\nYou are {agent_name or 'OpenAgents'}, an open-source super agent.\n</role>",
-        get_agents_md_section(agent_name, agent_status).strip(),
-        _load_attached_skills_section(
-            agent_name=agent_name,
-            agent_status=agent_status,
-            agent_config=agent_config,
-        ).strip(),
-        memory_context.strip(),
-        SECTION_THINKING_STYLE,
-        SECTION_WORKING_DIRECTORY,
-        SECTION_RESPONSE_STYLE,
-        SECTION_EVIDENCE,
-        SECTION_EXECUTION_CONTRACT,
-        SECTION_QUESTION_TOOL_CONTRACT if question_tool_enabled else "",
-        _get_authoring_context(agent_name=agent_name, agent_status=agent_status).strip(),
-        f"<current_date>{datetime.now().strftime('%Y-%m-%d, %A')}</current_date>",
+    return [
+        PromptSection("generic_runtime", GENERIC_RUNTIME_BASE_PROMPT, layer="platform_system"),
+        PromptSection("working_directory", SECTION_WORKING_DIRECTORY, layer="platform_system"),
+        PromptSection("evidence", SECTION_EVIDENCE, layer="platform_system"),
+        PromptSection("execution_contract", SECTION_EXECUTION_CONTRACT, layer="platform_system"),
+        # Agent identity and domain behavior live in AGENTS.md. The generic
+        # runtime prompt deliberately avoids "You are ..." persona text so it
+        # cannot conflict with custom agent contracts.
+        PromptSection(
+            "agent_instructions",
+            get_agents_md_section(agent_name, agent_status),
+            layer="agent_instructions",
+        ),
+        PromptSection(
+            "attached_skills",
+            _load_attached_skills_section(
+                agent_name=agent_name,
+                agent_status=agent_status,
+                agent_config=agent_config,
+            ),
+        ),
+        PromptSection(
+            "memory",
+            memory_context,
+        ),
+        PromptSection(
+            "question_tool_contract",
+            SECTION_QUESTION_TOOL_CONTRACT if question_tool_enabled else "",
+        ),
+        PromptSection(
+            "self_authoring",
+            _get_authoring_context(agent_name=agent_name, agent_status=agent_status),
+        ),
+        PromptSection(
+            "current_date",
+            f"<current_date>{datetime.now().strftime('%Y-%m-%d, %A')}</current_date>",
+        ),
     ]
-    return "\n\n".join(section for section in sections if section)
+
+
+def apply_prompt_template(
+    *,
+    user_id: str | None = None,
+    agent_name: str | None = None,
+    agent_status: str = "dev",
+    memory_config: AgentMemoryConfig | None = None,
+    agent_config: AgentConfig | None = None,
+) -> str:
+    """Render the runtime system prompt without per-turn command state."""
+    sections = build_prompt_sections(
+        user_id=user_id,
+        agent_name=agent_name,
+        agent_status=agent_status,
+        memory_config=memory_config,
+        agent_config=agent_config,
+    )
+    return _render_prompt_sections(sections)
+
+
+def apply_prompt_message_template(
+    *,
+    user_id: str | None = None,
+    agent_name: str | None = None,
+    agent_status: str = "dev",
+    memory_config: AgentMemoryConfig | None = None,
+    agent_config: AgentConfig | None = None,
+) -> SystemMessage:
+    """Render the runtime system prompt as cache-aware content blocks."""
+    sections = build_prompt_sections(
+        user_id=user_id,
+        agent_name=agent_name,
+        agent_status=agent_status,
+        memory_config=memory_config,
+        agent_config=agent_config,
+    )
+    return build_prompt_system_message(sections)
+
+
+def build_workspace_instructions_message(workspace_instructions: str | None) -> HumanMessage | None:
+    """Return Claude-Code-style project context as a meta user message.
+
+    Workspace instructions are intentionally not part of AGENTS.md. They are
+    current-thread/user context and must not override platform or agent system
+    contracts in a multi-tenant cloud runtime.
+    """
+    content = str(workspace_instructions or "").strip()
+    if not content:
+        return None
+    return HumanMessage(
+        content=f"<workspace_instructions>\n{content}\n</workspace_instructions>",
+        additional_kwargs={
+            "is_meta": True,
+            "runtime_context": "workspace_instructions",
+        },
+    )

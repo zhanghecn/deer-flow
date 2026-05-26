@@ -126,6 +126,12 @@ vi.mock("@/core/models/hooks", () => ({
         name: "kimi-k2.5",
         display_name: "Kimi K2.5",
       },
+      {
+        id: "model-2",
+        name: "no-thinking-model",
+        display_name: "No Thinking Model",
+        supports_thinking: false,
+      },
     ],
   }),
 }));
@@ -152,6 +158,40 @@ vi.mock("@/core/skills/hooks", () => ({
 }));
 
 describe("InputBox", () => {
+  it("downgrades stale pro mode for models that do not support thinking", async () => {
+    const onContextChange = vi.fn();
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              context={{
+                model_name: "no-thinking-model",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={onContextChange}
+              onSubmit={vi.fn()}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(onContextChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model_name: "no-thinking-model",
+          mode: "flash",
+        }),
+      );
+    });
+  });
+
   it("keeps user edits after applying a route prefill", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient();

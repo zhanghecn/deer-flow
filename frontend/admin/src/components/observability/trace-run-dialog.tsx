@@ -37,6 +37,8 @@ function sectionKindLabel(kind: ReturnType<typeof extractRunSections>[number]["k
   switch (kind) {
     case "reasoning":
       return t("Reasoning");
+    case "prompt":
+      return t("Prompt");
     case "messages":
       return t("Messages");
     case "tools":
@@ -55,6 +57,8 @@ function sectionChrome(kind: ReturnType<typeof extractRunSections>[number]["kind
   switch (kind) {
     case "reasoning":
       return "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20";
+    case "prompt":
+      return "border-cyan-200 bg-cyan-50/60 dark:border-cyan-900 dark:bg-cyan-950/20";
     case "messages":
       return "border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/20";
     case "tools":

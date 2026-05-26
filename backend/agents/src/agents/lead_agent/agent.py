@@ -12,11 +12,12 @@ from typing import Any, Literal
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.agents.lead_agent.prompt import apply_prompt_template
+from src.agents.lead_agent.prompt import apply_prompt_message_template as apply_prompt_template
 from src.agents.lead_agent.subagents import LoadedSubagentSpecs, load_subagent_specs
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
@@ -254,7 +255,7 @@ class LeadAgentGraphParts:
     general_purpose_tools: list[Any]
     todo_enabled: bool
     filesystem_enabled: bool
-    system_prompt: str
+    system_prompt: str | SystemMessage
 
 
 @dataclass(frozen=True)
@@ -1667,6 +1668,10 @@ def _create_lead_agent(
             ),
             "tools": graph_parts.tools,
             "system_prompt": graph_parts.system_prompt,
+            # The runtime prompt already includes a cache-aware generic block.
+            # Disable the SDK's default branded suffix so agent identity comes
+            # only from AGENTS.md.
+            "base_prompt": None,
             "middleware": graph_parts.middleware,
             "subagents": graph_parts.subagents,
             "general_purpose_tools": graph_parts.general_purpose_tools,

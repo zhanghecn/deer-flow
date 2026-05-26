@@ -71,8 +71,6 @@ skill_refs:
   source_path: system/skills/vision-analysis
 - name: tailwindcss-animations
   source_path: system/skills/tailwindcss-animations
-- name: openagents-http-integration
-  source_path: system/skills/openagents-http-integration
 status: prod
 subagent_defaults:
   general_purpose_enabled: true

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import yaml
 
-from src.config.paths import Paths
 from src.agents.lead_agent import prompt as prompt_module
+from src.config.paths import Paths
 
 
 def test_apply_prompt_template_keeps_base_prompt_free_of_runtime_command_blocks(monkeypatch):
@@ -24,6 +24,10 @@ def test_apply_prompt_template_keeps_base_prompt_free_of_runtime_command_blocks(
     assert "verify explicit user constraints" in rendered
     assert "If blocking information is missing, call `question`" in rendered
     assert 'Do not end an execution turn with progress-only text such as "next I will ..."' in rendered
+    assert "<role>" not in rendered
+    assert "open-source super agent" not in rendered
+    assert "You are OpenAgents" not in rendered
+    assert "You are lead_agent" not in rendered
 
 
 def test_apply_prompt_template_keeps_knowledge_base_detail_out_of_base_prompt(monkeypatch):
@@ -149,3 +153,95 @@ def test_apply_prompt_template_keeps_runtime_prompt_compact(monkeypatch):
 
     # The default lead_agent prompt is paid on every turn, so keep a hard budget.
     assert len(rendered) < 16500
+
+
+def test_default_lead_agent_prompt_is_generic_and_unbranded():
+    rendered = prompt_module.apply_prompt_template(agent_name="lead_agent", agent_status="dev")
+
+    # The default cloud agent must not inherit framework/demo identity text; the
+    # selected agent's AGENTS.md is the only identity source.
+    assert "OpenAgents" not in rendered
+    assert "openagents" not in rendered.lower()
+    assert "Deep Agent" not in rendered
+    assert "bms-kb-agent" not in rendered
+    assert "<role>" not in rendered
+    assert "open-source super agent" not in rendered
+
+
+def test_prompt_sections_keep_cache_boundary_explicit(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: "")
+
+    sections = prompt_module.build_prompt_sections()
+    layers_by_name = {section.name: section.layer for section in sections}
+
+    assert [
+        section.name
+        for section in sections
+        if section.layer == "platform_system"
+    ] == ["generic_runtime", "working_directory", "evidence", "execution_contract"]
+    assert layers_by_name["generic_runtime"] == "platform_system"
+    assert layers_by_name["agent_instructions"] == "agent_instructions"
+    assert layers_by_name["current_date"] == "runtime_context"
+
+
+def test_prompt_message_keeps_platform_agent_and_runtime_layers_separate(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: "# Custom Agent")
+
+    message = prompt_module.apply_prompt_message_template(agent_name="demo-agent")
+    blocks = message.content_blocks
+
+    assert len(blocks) == 3
+    assert blocks[0]["type"] == "text"
+    assert blocks[0]["cache_control"] == {"type": "ephemeral"}
+    assert "Use the available tools" in blocks[0]["text"]
+    assert "# Custom Agent" not in blocks[0]["text"]
+    assert blocks[1]["type"] == "text"
+    assert "cache_control" not in blocks[1]
+    assert "# Custom Agent" in blocks[1]["text"]
+    assert "<agent_instructions source=\"AGENTS.md\">" in blocks[1]["text"]
+    assert "<current_date>" not in blocks[1]["text"]
+    assert blocks[2]["type"] == "text"
+    assert "cache_control" not in blocks[2]
+    assert "<current_date>" in blocks[2]["text"]
+
+
+def test_static_prompt_cache_block_is_stable_when_runtime_sections_change(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    agents_md_values = iter(["# First Agent Contract", "# Second Agent Contract"])
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: next(agents_md_values))
+
+    first = prompt_module.apply_prompt_message_template(agent_name="demo-agent")
+    second = prompt_module.apply_prompt_message_template(agent_name="demo-agent")
+
+    assert first.content_blocks[0] == second.content_blocks[0]
+    assert "# First Agent Contract" in first.content_blocks[1]["text"]
+    assert "# Second Agent Contract" in second.content_blocks[1]["text"]
+
+
+def test_workspace_instructions_are_meta_user_context() -> None:
+    message = prompt_module.build_workspace_instructions_message("Run `make test` before finalizing.")
+
+    assert message is not None
+    assert message.type == "human"
+    assert message.additional_kwargs["is_meta"] is True
+    assert message.additional_kwargs["runtime_context"] == "workspace_instructions"
+    assert "<workspace_instructions>" in str(message.content)
+    assert "Run `make test` before finalizing." in str(message.content)
+
+
+def test_empty_workspace_instructions_are_omitted() -> None:
+    assert prompt_module.build_workspace_instructions_message("  ") is None

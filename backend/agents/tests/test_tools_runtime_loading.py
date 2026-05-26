@@ -122,6 +122,20 @@ def test_prompt_omits_question_contract_for_explicit_empty_tool_names() -> None:
     assert "question_tool_contract" not in prompt
 
 
+def test_prompt_does_not_inject_runtime_persona() -> None:
+    prompt = apply_prompt_template(
+        agent_name="bms-kb-agent",
+        memory_config=None,
+        agent_config=AgentConfig(name="bms-kb-agent"),
+    )
+
+    assert "<role>" not in prompt
+    assert "OpenAgents" not in prompt
+    assert "open-source super agent" not in prompt
+    assert "You are bms-kb-agent" not in prompt
+    assert "Runtime agent name" not in prompt
+
+
 def test_get_available_tools_prefers_explicit_tool_names(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

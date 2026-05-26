@@ -703,10 +703,13 @@ export function initializeI18n(): void {
 }
 
 export function t(
-  text: string,
+  text: string | null | undefined,
   params?: TranslationParams,
 ): string {
+  // Admin screens render live runtime payloads where optional labels may be
+  // absent. Keep translation tolerant so observability data cannot crash a route.
+  const source = text ?? "";
   const template =
-    currentLocale === "zh-CN" ? ZH_CN_MESSAGES[text] ?? text : text;
+    currentLocale === "zh-CN" ? ZH_CN_MESSAGES[source] ?? source : source;
   return interpolate(template, params);
 }

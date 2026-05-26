@@ -121,7 +121,7 @@ def resolve_model(model: str | BaseChatModel) -> BaseChatModel:
     return init_chat_model(model)
 
 
-def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic with many conditional branches
+def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly logic with many conditional branches
     model: str | BaseChatModel | None = None,
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
     *,
@@ -144,6 +144,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     todo_enabled: bool = True,
     filesystem_enabled: bool = True,
     summarization_model: str | BaseChatModel | None = None,
+    base_prompt: str | None = BASE_AGENT_PROMPT,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -247,6 +248,10 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             a separate non-thinking model mirrors Claude Code's compact-query
             isolation: the compact pass must produce normal text and must not
             inherit user-visible reasoning settings from the active run model.
+        base_prompt:
+            Optional behavior prompt appended after caller instructions. Product
+            runtimes can pass a neutral variant to avoid conflicting with their
+            own agent identity contract while direct SDK usage keeps the default.
 
     Returns:
         A configured deep agent.
@@ -355,14 +360,19 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     if interrupt_on is not None:
         deepagent_middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
-    # Combine system_prompt with BASE_AGENT_PROMPT
+    # Combine caller instructions with a configurable behavior prompt. Keeping
+    # this suffix configurable prevents framework identity text from competing
+    # with product-owned agent prompts.
+    prompt_suffix = str(base_prompt or "").strip()
     if system_prompt is None:
-        final_system_prompt: str | SystemMessage = BASE_AGENT_PROMPT
+        final_system_prompt: str | SystemMessage = prompt_suffix
     elif isinstance(system_prompt, SystemMessage):
-        final_system_prompt = SystemMessage(content_blocks=[*system_prompt.content_blocks, {"type": "text", "text": f"\n\n{BASE_AGENT_PROMPT}"}])
+        content_blocks = list(system_prompt.content_blocks)
+        if prompt_suffix:
+            content_blocks.append({"type": "text", "text": f"\n\n{prompt_suffix}"})
+        final_system_prompt = SystemMessage(content_blocks=content_blocks)
     else:
-        # String: simple concatenation
-        final_system_prompt = system_prompt + "\n\n" + BASE_AGENT_PROMPT
+        final_system_prompt = system_prompt if not prompt_suffix else system_prompt + "\n\n" + prompt_suffix
 
     return create_agent(
         model,

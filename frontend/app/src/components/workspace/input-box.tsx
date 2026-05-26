@@ -107,7 +107,7 @@ type InputBoxContext = Omit<
   effort?: Effort;
   subagent_enabled?: boolean;
 };
-type ModelSelection = Pick<Model, "name">;
+type ModelSelection = Pick<Model, "name" | "supports_thinking">;
 type ModeOption = {
   mode: InputMode;
   label: string;
@@ -256,7 +256,13 @@ function resolveInputContext(
   modelSelection: ModelSelection,
   requestedMode: InputMode | undefined = context.mode,
 ): InputBoxContext {
-  const nextMode = getResolvedThreadMode(requestedMode);
+  const requestedThreadMode = getResolvedThreadMode(requestedMode);
+  // Pro mode maps to thinking. Downgrade only for explicit non-thinking models
+  // so stale local settings cannot submit an invalid runtime flag combination.
+  const nextMode =
+    requestedThreadMode === "pro" && modelSelection.supports_thinking === false
+      ? "flash"
+      : requestedThreadMode;
 
   return {
     ...context,
