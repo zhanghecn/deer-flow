@@ -20,6 +20,8 @@
    - Document Server 使用它访问：
      - `/api/office/threads/:id/files/*path`
      - `/api/office/threads/:id/callback/*path`
+   - 这类请求必须先通过 ONLYOFFICE JWT 验签；Gateway 生成的
+     `user_id` 查询参数只作为已验签请求的用户绑定兜底，不作为独立鉴权凭据
 
 另外现在有两类 ONLYOFFICE 地址配置：
 
@@ -103,8 +105,8 @@ Gateway
 关键代码片段：
 
 ```go
-fileURL := fmt.Sprintf("%s/api/office/threads/%s/files/%s", baseURL, ...)
-callbackURL := fmt.Sprintf("%s/api/office/threads/%s/callback/%s", baseURL, ...)
+fileURL := fmt.Sprintf("%s/api/office/threads/%s/files/%s?user_id=%s", baseURL, ..., userID)
+callbackURL := fmt.Sprintf("%s/api/office/threads/%s/callback/%s?user_id=%s", baseURL, ..., userID)
 
 payload := map[string]any{
     "document": map[string]any{
@@ -125,6 +127,9 @@ payload["token"] = token
 - `document.url` 给 Document Server 拉原文件
 - `editorConfig.callbackUrl` 给 Document Server 保存时回调
 - `token` 不是用户 JWT，而是 Gateway 用 ONLYOFFICE secret 签的 office JWT
+- `user_id` 是 Gateway 生成的线程文件归属提示。ONLYOFFICE 自己生成的
+  status/download token 不一定保留原始 `editorConfig.user.id`，所以 Gateway
+  在 office JWT 验签通过后才允许使用这个查询参数定位用户目录。
 
 ## 4. 文档是如何“回显”的
 
@@ -140,8 +145,10 @@ payload["token"] = token
    new DocsAPI.DocEditor(id, config)
 4. ONLYOFFICE 校验 config.token
 5. ONLYOFFICE 请求 config.document.url
-6. Gateway 校验 office JWT 后返回真实文件字节流
-7. ONLYOFFICE 在 iframe/editor 内渲染文档
+6. Gateway 校验 office JWT，并从 token 的 `editorConfig.user.id` 或已验签 URL
+   的 `user_id` 解析用户绑定
+7. Gateway 返回真实文件字节流
+8. ONLYOFFICE 在 iframe/editor 内渲染文档
 ```
 
 前端关键实现：

@@ -74,7 +74,7 @@ func TestOnlyOfficeConfigReturnsSignedPresentationConfig(t *testing.T) {
 	if got := document["fileType"]; got != "pptx" {
 		t.Fatalf("unexpected file type: %v", got)
 	}
-	if got := document["url"]; got != "http://gateway.local/api/office/threads/"+threadID+"/files/outputs/deck.pptx" {
+	if got := document["url"]; got != "http://gateway.local/api/office/threads/"+threadID+"/files/outputs/deck.pptx?user_id="+onlyOfficeTestUserID {
 		t.Fatalf("unexpected document url: %v", got)
 	}
 	if got := document["title"]; got != filepath.Base(deckPath) {
@@ -87,7 +87,7 @@ func TestOnlyOfficeConfigReturnsSignedPresentationConfig(t *testing.T) {
 	}
 
 	editorConfig := payload.Config["editorConfig"].(map[string]any)
-	if got := editorConfig["callbackUrl"]; got != "http://gateway.local/api/office/threads/"+threadID+"/callback/outputs/deck.pptx" {
+	if got := editorConfig["callbackUrl"]; got != "http://gateway.local/api/office/threads/"+threadID+"/callback/outputs/deck.pptx?user_id="+onlyOfficeTestUserID {
 		t.Fatalf("unexpected callback url: %v", got)
 	}
 	if got := editorConfig["mode"]; got != "edit" {
@@ -293,6 +293,81 @@ func TestOnlyOfficeFileServesArtifactForAuthorizedRequest(t *testing.T) {
 	}
 }
 
+func TestOnlyOfficeFileUsesGatewayUserIDWhenServerTokenOmitsEditorConfig(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-office-server-token"
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("server-token"))
+
+	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
+		ServerURL: "http://onlyoffice.local",
+		JWTSecret: "office-secret",
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/office/threads/"+threadID+"/files/outputs/deck.pptx?user_id="+onlyOfficeTestUserID,
+		nil,
+	)
+	c.Request.Header.Set("Authorization", "Bearer "+signOnlyOfficeTestTokenWithClaims(t, "office-secret", jwtv5.MapClaims{
+		"key": "document-key",
+	}))
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "head", Value: "outputs"},
+		{Key: "tail", Value: "/deck.pptx"},
+	}
+
+	handler.File(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "server-token" {
+		t.Fatalf("unexpected file body: %q", rec.Body.String())
+	}
+}
+
+func TestOnlyOfficeFileRejectsServerTokenWithoutAnyUserBinding(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-office-missing-user"
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("server-token"))
+
+	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
+		ServerURL: "http://onlyoffice.local",
+		JWTSecret: "office-secret",
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/office/threads/"+threadID+"/files/outputs/deck.pptx",
+		nil,
+	)
+	c.Request.Header.Set("Authorization", "Bearer "+signOnlyOfficeTestTokenWithClaims(t, "office-secret", jwtv5.MapClaims{
+		"key": "document-key",
+	}))
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "head", Value: "outputs"},
+		{Key: "tail", Value: "/deck.pptx"},
+	}
+
+	handler.File(c)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestOnlyOfficeCallbackDownloadsAndReplacesPresentation(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -346,6 +421,65 @@ func TestOnlyOfficeCallbackDownloadsAndReplacesPresentation(t *testing.T) {
 		t.Fatalf("read updated deck: %v", err)
 	}
 	if string(gotBytes) != "after" {
+		t.Fatalf("expected updated file contents, got %q", string(gotBytes))
+	}
+}
+
+func TestOnlyOfficeCallbackUsesGatewayUserIDWhenServerTokenOmitsEditorConfig(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-office-callback-server-token"
+	deckPath := writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("before"))
+
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("after-server-token"))
+	}))
+	defer downloadServer.Close()
+
+	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
+		ServerURL: "http://onlyoffice.local",
+		JWTSecret: "office-secret",
+	})
+
+	body := map[string]any{
+		"status": 2,
+		"url":    downloadServer.URL + "/updated.pptx",
+		"token": signOnlyOfficeTestTokenWithClaims(t, "office-secret", jwtv5.MapClaims{
+			"key": "document-key",
+		}),
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal callback body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/office/threads/"+threadID+"/callback/outputs/deck.pptx?user_id="+onlyOfficeTestUserID,
+		bytes.NewReader(bodyBytes),
+	)
+	c.Request = c.Request.WithContext(context.Background())
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "head", Value: "outputs"},
+		{Key: "tail", Value: "/deck.pptx"},
+	}
+
+	handler.Callback(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	gotBytes, err := os.ReadFile(deckPath)
+	if err != nil {
+		t.Fatalf("read updated deck: %v", err)
+	}
+	if string(gotBytes) != "after-server-token" {
 		t.Fatalf("expected updated file contents, got %q", string(gotBytes))
 	}
 }
@@ -438,7 +572,7 @@ func writeTestDeck(
 func signOnlyOfficeTestToken(t *testing.T, secret string) string {
 	t.Helper()
 
-	token := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, jwtv5.MapClaims{
+	return signOnlyOfficeTestTokenWithClaims(t, secret, jwtv5.MapClaims{
 		"scope": "onlyoffice",
 		"editorConfig": map[string]any{
 			"user": map[string]any{
@@ -446,6 +580,12 @@ func signOnlyOfficeTestToken(t *testing.T, secret string) string {
 			},
 		},
 	})
+}
+
+func signOnlyOfficeTestTokenWithClaims(t *testing.T, secret string, claims jwtv5.MapClaims) string {
+	t.Helper()
+
+	token := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
