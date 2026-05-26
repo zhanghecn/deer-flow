@@ -23,6 +23,9 @@ from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+from src.agents.middlewares.provider_message_sanitization_middleware import (
+    ProviderMessageSanitizationMiddleware,
+)
 from src.agents.middlewares.question_discipline_middleware import (
     QuestionDisciplineMiddleware,
 )
@@ -600,6 +603,7 @@ def _build_openagents_middlewares(
     - UploadsMiddleware: injects uploaded file context into the current user turn
     - TitleMiddleware: persists a local first-turn title without another model call
     - Recovery middlewares: recover provider-specific outputs
+    - ProviderMessageSanitizationMiddleware: strip malformed provider-native blocks
     - ContextWindowMiddleware: emit telemetry for the admin console
     """
     # Authoring turns rely on explicit tool contracts plus backend/runtime
@@ -617,6 +621,7 @@ def _build_openagents_middlewares(
         ToolBatchSequencingMiddleware(),
         MaxTokensRecoveryMiddleware(),
         VisibleResponseRecoveryMiddleware(question_tool_enabled=question_tool_enabled),
+        ProviderMessageSanitizationMiddleware(),
         ContextWindowMiddleware(),
     ]
     if question_tool_enabled:

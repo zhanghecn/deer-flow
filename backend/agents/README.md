@@ -110,6 +110,7 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 | OpenAgents extras | **KnowledgeContextMiddleware** | Injects thread-bound knowledge metadata as XML prompt context and reinforces the retrieval protocol |
 | OpenAgents extras | **TitleMiddleware** | Auto-generates and persists a lightweight first-turn title |
 | OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and question-flow recovery |
+| OpenAgents extras | **ProviderMessageSanitizationMiddleware** | Removes malformed provider-native content blocks before model replay and state persistence |
 | OpenAgents extras | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
 | Deep Agents built-ins | **FilesystemMiddleware**, **SkillsMiddleware**, **SummarizationMiddleware**, **TodoListMiddleware**, **MemoryMiddleware** | Provide the core filesystem, skills, summarization, planning, and memory behaviors |
 | Prompt contract | DeepAgents base prompt + `lead_agent` prompt | Keep execution running until required deliverables are actually completed, prevent ending on unfinished todos, and treat research/proposal text as non-final when the user asked for execution |

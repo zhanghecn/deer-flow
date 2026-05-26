@@ -171,7 +171,8 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 4. **KnowledgeContextMiddleware** — Injects attached KB metadata into the prompt and reinforces the KB retrieval protocol
 5. **TitleMiddleware** — Auto-generates thread title
 6. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
-7. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
+7. **ProviderMessageSanitizationMiddleware** — Removes malformed provider-native content blocks before model replay and state persistence
+8. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
 
 Prompt-level completion discipline:
 - DeepAgents base prompt plus `lead_agent` prompt are responsible for the "keep going until done" contract.
