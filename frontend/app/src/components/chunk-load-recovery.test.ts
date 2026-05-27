@@ -9,6 +9,9 @@ function memoryStorage(initial: Record<string, string> = {}) {
     setItem: vi.fn((key: string, value: string) => {
       values.set(key, value);
     }),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
   };
 }
 
@@ -29,12 +32,14 @@ describe("chunk load recovery", () => {
     const storage = memoryStorage();
     const reload = vi.fn();
     const error = new Error("Failed to fetch dynamically imported module");
+    const currentTime = 1_000;
 
     expect(
       recoverChunkLoadError(error, {
         href: "http://localhost/workspace/chats/1",
         reload,
         storage,
+        now: () => currentTime,
       }),
     ).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);
@@ -44,9 +49,36 @@ describe("chunk load recovery", () => {
         href: "http://localhost/workspace/chats/1",
         reload,
         storage,
+        now: () => currentTime + 1,
       }),
     ).toBe(false);
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows recovery again after the reload cooldown expires", () => {
+    const storage = memoryStorage();
+    const reload = vi.fn();
+    const error = new Error("Failed to fetch dynamically imported module");
+    const href = "http://localhost/workspace/chats/1";
+
+    expect(
+      recoverChunkLoadError(error, {
+        href,
+        reload,
+        storage,
+        now: () => 1_000,
+      }),
+    ).toBe(true);
+
+    expect(
+      recoverChunkLoadError(error, {
+        href,
+        reload,
+        storage,
+        now: () => 12_000,
+      }),
+    ).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it("does not reload for non-chunk errors", () => {
