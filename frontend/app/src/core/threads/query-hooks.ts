@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getAPIClient } from "../api";
 import { useAuth } from "../auth";
 
 import {
@@ -148,10 +147,9 @@ export function useRenameThread() {
       threadId: string;
       title: string;
     }) => {
-      const apiClient = getAPIClient(false, threadId);
-      await apiClient.threads.updateState(threadId, {
-        values: { title },
-      });
+      // Thread titles are indexed and searched from the gateway binding table.
+      // Avoid patching LangGraph state from the UI: active runs reject state
+      // writes with 409, and title persistence must not interfere with runs.
       await updateThreadTitle(threadId, title);
     },
     onSuccess(_, { threadId, title }) {

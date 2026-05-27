@@ -55,6 +55,7 @@ export function ThreadTitle({
     if (
       isNewThread ||
       threadId === "new" ||
+      thread.isLoading ||
       thread.isThreadLoading ||
       explicitTitle ||
       !fallbackTitle ||
@@ -86,6 +87,7 @@ export function ThreadTitle({
     isNewThread,
     isRenamingThread,
     renameThread,
+    thread.isLoading,
     thread.isThreadLoading,
     threadId,
   ]);

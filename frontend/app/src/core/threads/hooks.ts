@@ -1179,6 +1179,7 @@ export function useThreadStream({
     null,
   );
   const [pendingRecoveryLoading, setPendingRecoveryLoading] = useState(false);
+  const [activeRunRecoveryVersion, setActiveRunRecoveryVersion] = useState(0);
   const [executionStatus, setExecutionStatus] =
     useState<ExecutionStatus | null>(null);
   const [historyEnabled, setHistoryEnabled] = useState(
@@ -1204,12 +1205,20 @@ export function useThreadStream({
     resolvedContext.model_name.trim().length > 0;
   const isThreadRegistrationReady = !threadId || ensuredThreadId === threadId;
   const canUseThreadHistory = historyEnabled && isThreadRegistrationReady;
+  const sdkHistoryThreadId = threadId ?? streamThreadId;
+  const isLocalRunStateAuthoritative =
+    deferStateHydrationRef.current ||
+    hasLocalActiveRunOwnership(sdkHistoryThreadId);
+  const shouldReadSdkThreadHistory =
+    canUseThreadHistory &&
+    !manualHistorySeedRef.current &&
+    !isLocalRunStateAuthoritative;
   const passthroughThreadHistory = useMemo(
     () =>
-      canUseThreadHistory || !(threadId ?? streamThreadId)
+      shouldReadSdkThreadHistory || !sdkHistoryThreadId
         ? undefined
         : buildPassthroughThreadHistory<AgentThreadState>(),
-    [canUseThreadHistory, streamThreadId, threadId],
+    [sdkHistoryThreadId, shouldReadSdkThreadHistory],
   );
   const ensureThreadExists = useCallback(
     (targetThreadId: string) => {
@@ -1419,14 +1428,12 @@ export function useThreadStream({
     throttle: streamThrottle,
     reconnectOnMount: false,
     thread: passthroughThreadHistory,
-    // Fresh threads can race with the first run before the runtime model is
-    // persisted. Delay history reads until the first turn finishes.
-    // Manual stop already seeds the latest history snapshot, so suppress the
-    // SDK history fetch for that transition to avoid a duplicate history call.
+    // The SDK treats `fetchStateHistory: false` as "fetch the current state",
+    // not as "disable history". Whenever app-owned recovery is authoritative,
+    // pass a passthrough `thread` object so the SDK cannot issue `/state`
+    // during active runs, manual stop snapshots, or deferred first-turn loads.
     fetchStateHistory:
-      canUseThreadHistory && !manualHistorySeedRef.current
-        ? { limit: HISTORY_PAGE_SIZE }
-        : false,
+      shouldReadSdkThreadHistory ? { limit: HISTORY_PAGE_SIZE } : false,
     onCreated(meta) {
       setStreamThreadId(meta.thread_id);
       setEnsuredThreadId(meta.thread_id);
@@ -1492,15 +1499,34 @@ export function useThreadStream({
   const threadLoadingRef = useRef(thread.isLoading);
   const isThreadReady = !threadId || streamThreadId === threadId;
   const latestPersistedTaskError = useMemo(() => {
-    if (!historyEnabled) {
+    if (!shouldReadSdkThreadHistory) {
       return undefined;
     }
 
     return extractLatestPersistedTaskError(getThreadHistorySnapshot(thread));
-  }, [historyEnabled, thread]);
+  }, [shouldReadSdkThreadHistory, thread]);
 
   joinStreamRef.current = thread.joinStream;
   threadLoadingRef.current = thread.isLoading;
+
+  const hasStoredRunJoinInFlight = useCallback(
+    (targetThreadId: string | null | undefined) => {
+      if (!targetThreadId || !hasLocalActiveRunOwnership(targetThreadId)) {
+        return false;
+      }
+
+      const storedRunId = readStoredActiveRunId(targetThreadId);
+      if (!storedRunId) {
+        return false;
+      }
+
+      // While a known run id is being rejoined, `/state` is the wrong recovery
+      // path: LangGraph can reject state reads for an active run with 409.
+      // Wait for the join to either attach to the stream or prove the id stale.
+      return joinedRunIdRef.current === storedRunId;
+    },
+    [],
+  );
 
   useEffect(() => {
     setThreadOverride(null);
@@ -1608,6 +1634,8 @@ export function useThreadStream({
         // A stale persisted run id should not surface as a user-facing failure.
         // Keep ownership so state hydration can reconnect to a fresher run id.
         clearStoredActiveRunId(threadId);
+        deferStateHydrationRef.current = false;
+        setActiveRunRecoveryVersion((version) => version + 1);
         return;
       }
       notifyThreadError(error);
@@ -1623,8 +1651,7 @@ export function useThreadStream({
   useEffect(() => {
     const shouldRefreshFromActivation =
       lastHydrationActivationRef.current !== windowActivationId;
-    const shouldDeferStateHydration =
-      deferStateHydrationRef.current && !historyEnabled;
+    const shouldDeferStateHydration = deferStateHydrationRef.current;
 
     if (
       !threadId ||
@@ -1653,6 +1680,10 @@ export function useThreadStream({
     }
 
     if (stateHydrationInFlightRef.current) {
+      return;
+    }
+
+    if (hasStoredRunJoinInFlight(threadId)) {
       return;
     }
 
@@ -1752,10 +1783,12 @@ export function useThreadStream({
     };
   }, [
     apiClient,
+    activeRunRecoveryVersion,
     authenticated,
     finalizeRecoveredTerminalError,
     hasResolvedModelName,
     historyEnabled,
+    hasStoredRunJoinInFlight,
     isThreadReady,
     isThreadRegistrationReady,
     isWindowActive,
@@ -1787,6 +1820,10 @@ export function useThreadStream({
     }
 
     if (!hasLocalActiveRunOwnership(threadId)) {
+      return;
+    }
+
+    if (hasStoredRunJoinInFlight(threadId)) {
       return;
     }
 
@@ -1852,11 +1889,13 @@ export function useThreadStream({
     };
   }, [
     apiClient,
+    activeRunRecoveryVersion,
     authenticated,
     finalizeRecoveredTerminalError,
     finalizeRecoveredRun,
     hasResolvedModelName,
     historyEnabled,
+    hasStoredRunJoinInFlight,
     isThreadReady,
     isThreadRegistrationReady,
     isWindowActive,
@@ -1910,6 +1949,9 @@ export function useThreadStream({
 
       terminalStateNotifiedRef.current = false;
       manualHistorySeedRef.current = false;
+      // The live stream owns state for runs started by this tab. Hydration is
+      // only a recovery path after the stream proves stale or terminal.
+      deferStateHydrationRef.current = true;
       setThreadOverride(null);
       setExecutionStatus(null);
       lastErrorMessageRef.current = null;
@@ -1966,6 +2008,7 @@ export function useThreadStream({
             setOptimisticMessages([]);
             clearLocalActiveRunOwnership(runThreadId);
             clearStoredActiveRunId(runThreadId);
+            deferStateHydrationRef.current = false;
             throw error;
           }
         }
@@ -2002,6 +2045,7 @@ export function useThreadStream({
         setOptimisticMessages([]);
         clearLocalActiveRunOwnership(runThreadId);
         clearStoredActiveRunId(runThreadId);
+        deferStateHydrationRef.current = false;
         notifyThreadError(error);
         throw error;
       }
@@ -2019,7 +2063,7 @@ export function useThreadStream({
   );
 
   const historyContextWindow = useMemo(() => {
-    const historySnapshot = canUseThreadHistory
+    const historySnapshot = shouldReadSdkThreadHistory
       ? getThreadHistorySnapshot(thread)
       : null;
     if (!historySnapshot) {
@@ -2027,7 +2071,7 @@ export function useThreadStream({
     }
 
     return extractLatestContextWindow(historySnapshot) ?? null;
-  }, [canUseThreadHistory, thread]);
+  }, [shouldReadSdkThreadHistory, thread]);
 
   const resumeInterrupt = useCallback(
     async (
@@ -2042,6 +2086,9 @@ export function useThreadStream({
       const selectedModelName = requireModelName(resolvedContext);
       terminalStateNotifiedRef.current = false;
       manualHistorySeedRef.current = false;
+      // Resumes are live run ownership from the UI's perspective; keep state
+      // reads deferred until the stream or recovery flow settles.
+      deferStateHydrationRef.current = true;
       setThreadOverride(null);
       setExecutionStatus(null);
       lastErrorMessageRef.current = null;
@@ -2063,6 +2110,7 @@ export function useThreadStream({
       } catch (error) {
         clearLocalActiveRunOwnership(runThreadId);
         clearStoredActiveRunId(runThreadId);
+        deferStateHydrationRef.current = false;
         notifyThreadError(error);
         throw error;
       }
@@ -2090,12 +2138,12 @@ export function useThreadStream({
     [mergedThread.values, historyContextWindow],
   );
   const liveHistory = useMemo(() => {
-    if (!canUseThreadHistory) {
+    if (!shouldReadSdkThreadHistory) {
       return [];
     }
 
     return getThreadHistorySnapshot(thread);
-  }, [canUseThreadHistory, thread]);
+  }, [shouldReadSdkThreadHistory, thread]);
   const stopRun = useCallback(async () => {
     if (stopPromiseRef.current) {
       await stopPromiseRef.current;

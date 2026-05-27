@@ -52,6 +52,7 @@ const apiClient = {
 
 let streamState: MockThreadState;
 let latestUseStreamOptions: Record<string, unknown> | null;
+let useStreamOptionsLog: Array<Record<string, unknown>>;
 
 function createPendingPromise<T>() {
   return new Promise<T>(() => undefined);
@@ -102,6 +103,7 @@ function emitStream(partial: Partial<MockThreadState>) {
 vi.mock("@langchain/langgraph-sdk/react", () => ({
   useStream: (options: unknown) => {
     latestUseStreamOptions = options as Record<string, unknown>;
+    useStreamOptionsLog.push(latestUseStreamOptions);
     const [, setTick] = React.useState(0);
 
     React.useEffect(() => {
@@ -175,11 +177,21 @@ function createWrapper() {
   return Object.assign(Wrapper, { queryClient });
 }
 
+function expectPassthroughThreadHistory(value: unknown) {
+  expect(value).toEqual({
+    data: [],
+    error: undefined,
+    isLoading: false,
+    mutate: expect.any(Function),
+  });
+}
+
 describe("useThreadStream", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     subscribers.clear();
     latestUseStreamOptions = null;
+    useStreamOptionsLog = [];
     getAPIClientMock.mockReset().mockReturnValue(apiClient);
     mockLocalSettingsContext = {
       model_name: "kimi-k2.5",
@@ -1609,6 +1621,7 @@ describe("useThreadStream", () => {
 
     expect(apiClient.threads.getHistory).toHaveBeenCalledTimes(1);
     expect(latestUseStreamOptions?.fetchStateHistory).toBe(false);
+    expectPassthroughThreadHistory(latestUseStreamOptions?.thread);
   });
 
   it("keeps the seeded history after stopping even when the live history getter throws", async () => {
@@ -2230,6 +2243,71 @@ describe("useThreadStream", () => {
         },
       );
     });
+  });
+
+  it("does not fetch thread state while a stored active run is being rejoined", async () => {
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-resume-1");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenCalledWith(
+        "run-resume-1",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
+  });
+
+  it("keeps SDK history bypassed after thread registration while a local run is active", async () => {
+    const createDeferred = createDeferredPromise<void>();
+    apiClient.threads.create.mockReturnValue(createDeferred.promise);
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-resume-1");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const renderCountBeforeRegistration = useStreamOptionsLog.length;
+
+    await act(async () => {
+      createDeferred.resolve(undefined);
+      await createDeferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(useStreamOptionsLog.length).toBeGreaterThan(
+        renderCountBeforeRegistration,
+      );
+    });
+    expect(latestUseStreamOptions?.fetchStateHistory).toBe(false);
+    expectPassthroughThreadHistory(latestUseStreamOptions?.thread);
   });
 
   it("waits for useStream to retarget before replaying a stored run after switching threads", async () => {

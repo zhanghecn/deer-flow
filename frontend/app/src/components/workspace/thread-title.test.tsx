@@ -40,10 +40,15 @@ vi.mock("./flip-display", () => ({
   FlipDisplay: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-function buildThread(values: Partial<AgentThreadState>) {
+function buildThread(
+  values: Partial<AgentThreadState>,
+  overrides: Partial<BaseStream<AgentThreadState>> = {},
+) {
   return {
     values,
+    isLoading: false,
     isThreadLoading: false,
+    ...overrides,
   } as BaseStream<AgentThreadState>;
 }
 
@@ -90,6 +95,28 @@ describe("ThreadTitle", () => {
     );
 
     expect(screen.getByText("Saved title")).toBeInTheDocument();
+    expect(renameThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("waits for active streams to finish before backfilling a fallback title", () => {
+    render(
+      <ThreadTitle
+        threadId="thread-1"
+        thread={buildThread(
+          {
+            messages: [
+              {
+                type: "human",
+                content: [{ type: "text", text: "生成一份运行报告" }],
+              },
+            ],
+          },
+          { isLoading: true },
+        )}
+      />,
+    );
+
+    expect(screen.getByText("生成一份运行报告")).toBeInTheDocument();
     expect(renameThreadMock).not.toHaveBeenCalled();
   });
 });
