@@ -25,9 +25,9 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuButton,
   SidebarMenuItem,
+  sidebarMenuActionClassName,
+  sidebarMenuButtonClassName,
 } from "@/components/ui/sidebar";
 import { DEMO_SHARE_BASE_URL } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
@@ -75,31 +75,40 @@ const RecentChatItem = memo(function RecentChatItem({
 }: RecentChatItemProps) {
   return (
     <SidebarMenuItem className="group/side-menu-item">
-      <SidebarMenuButton
-        isActive={isActive}
-        asChild
-        className="min-w-0 h-9 text-sm"
+      {/* Recent chats repaint after query refreshes; rendering the link directly
+          avoids a high-volume Radix Slot ref chain on every thread row. */}
+      <Link
+        data-slot="sidebar-menu-button"
+        data-sidebar="menu-button"
+        data-size="default"
+        data-active={isActive}
+        className={sidebarMenuButtonClassName({
+          className:
+            "text-muted-foreground h-9 min-w-0 truncate text-sm leading-5",
+        })}
+        to={href}
+        onMouseEnter={() => onPrefetch(href)}
+        onFocus={() => onPrefetch(href)}
       >
-        <Link
-          className="text-muted-foreground block w-full truncate leading-5"
-          to={href}
-          onMouseEnter={() => onPrefetch(href)}
-          onFocus={() => onPrefetch(href)}
-        >
-          {title}
-        </Link>
-      </SidebarMenuButton>
+        {title}
+      </Link>
 
       {env.VITE_STATIC_WEBSITE_ONLY !== "true" && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuAction
-              showOnHover
-              className="bg-background/65 hover:bg-background h-7 w-7"
-            >
-              <MoreHorizontal className="size-3.5" />
-              <span className="sr-only">{moreLabel}</span>
-            </SidebarMenuAction>
+          {/* Keep the trigger as a real button instead of wrapping
+              SidebarMenuAction with asChild; this preserves menu behavior while
+              reducing callback-ref churn in the sidebar list. */}
+          <DropdownMenuTrigger
+            data-slot="sidebar-menu-action"
+            data-sidebar="menu-action"
+            className={sidebarMenuActionClassName({
+              showOnHover: true,
+              className: "bg-background/65 hover:bg-background h-7 w-7",
+            })}
+            type="button"
+          >
+            <MoreHorizontal className="size-3.5" />
+            <span className="sr-only">{moreLabel}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             className="w-44 rounded-lg"
@@ -194,7 +203,9 @@ export function RecentChatList() {
       const isLocalhost =
         window.location.hostname === "localhost" ||
         window.location.hostname === "127.0.0.1";
-      const baseUrl = isLocalhost ? DEMO_SHARE_BASE_URL : window.location.origin;
+      const baseUrl = isLocalhost
+        ? DEMO_SHARE_BASE_URL
+        : window.location.origin;
       const shareUrl = `${baseUrl}${pathOfThread(thread)}`;
       try {
         await navigator.clipboard.writeText(shareUrl);
@@ -206,12 +217,9 @@ export function RecentChatList() {
     [t],
   );
 
-  const handlePrefetch = useCallback(
-    (_href: string) => {
-      // No-op: react-router-dom does not support programmatic prefetch
-    },
-    [],
-  );
+  const handlePrefetch = useCallback((_href: string) => {
+    // No-op: react-router-dom does not support programmatic prefetch
+  }, []);
 
   if (threadItems.length === 0) {
     return null;
@@ -219,8 +227,8 @@ export function RecentChatList() {
 
   return (
     <>
-      <SidebarGroup className="flex min-h-0 flex-1 flex-col pt-0 px-2">
-        <SidebarGroupLabel className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+      <SidebarGroup className="flex min-h-0 flex-1 flex-col px-2 pt-0">
+        <SidebarGroupLabel className="text-muted-foreground/60 text-[11px] font-medium tracking-wider uppercase">
           {env.VITE_STATIC_WEBSITE_ONLY !== "true"
             ? t.sidebar.recentChats
             : t.sidebar.demoChats}
@@ -251,7 +259,7 @@ export function RecentChatList() {
       </SidebarGroup>
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent className="sm:max-w-[400px] gap-4">
+        <DialogContent className="gap-4 sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="text-base">{t.common.rename}</DialogTitle>
           </DialogHeader>
@@ -269,7 +277,11 @@ export function RecentChatList() {
             />
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setRenameDialogOpen(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRenameDialogOpen(false)}
+            >
               {t.common.cancel}
             </Button>
             <Button size="sm" onClick={handleRenameSubmit}>
