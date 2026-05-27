@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 
 import { ArtifactsProvider, useArtifacts } from "./context";
 
@@ -44,8 +44,52 @@ function RevealHarness() {
   );
 }
 
+function SidebarStateHarness() {
+  const { isMobile, open, openMobile, setOpenMobile } = useSidebar();
+  const { reveal, select } = useArtifacts();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => select("/mnt/user-data/outputs/demo.pdf")}
+      >
+        Select Artifact
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          reveal({
+            filepath: "/mnt/user-data/outputs/demo.pdf",
+            page: 7,
+          })
+        }
+      >
+        Reveal Artifact
+      </button>
+      <button type="button" onClick={() => setOpenMobile(true)}>
+        Open Mobile Sidebar
+      </button>
+      <div data-testid="sidebar-open">{open ? "open" : "closed"}</div>
+      <div data-testid="mobile-sidebar-open">
+        {openMobile ? "open" : "closed"}
+      </div>
+      <div data-testid="viewport-kind">{isMobile ? "mobile" : "desktop"}</div>
+    </div>
+  );
+}
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
 describe("ArtifactsProvider", () => {
   beforeEach(() => {
+    setViewportWidth(1024);
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockImplementation(() => ({
@@ -95,5 +139,47 @@ describe("ArtifactsProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset Preview" }));
     expect(screen.getByTestId("artifact-count").textContent).toBe("0");
     expect(screen.getByTestId("preview-page").textContent).toBe("none");
+  });
+
+  it("keeps the desktop sidebar open when selecting or revealing artifacts", () => {
+    render(
+      <SidebarProvider>
+        <ArtifactsProvider>
+          <SidebarStateHarness />
+        </ArtifactsProvider>
+      </SidebarProvider>,
+    );
+
+    expect(screen.getByTestId("sidebar-open").textContent).toBe("open");
+
+    fireEvent.click(screen.getByRole("button", { name: "Select Artifact" }));
+    expect(screen.getByTestId("sidebar-open").textContent).toBe("open");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Artifact" }));
+    expect(screen.getByTestId("sidebar-open").textContent).toBe("open");
+  });
+
+  it("dismisses the mobile sidebar drawer when revealing an artifact", async () => {
+    setViewportWidth(375);
+    render(
+      <SidebarProvider>
+        <ArtifactsProvider>
+          <SidebarStateHarness />
+        </ArtifactsProvider>
+      </SidebarProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("viewport-kind").textContent).toBe("mobile"),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Mobile Sidebar" }),
+    );
+    expect(screen.getByTestId("mobile-sidebar-open").textContent).toBe("open");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Artifact" }));
+    expect(screen.getByTestId("mobile-sidebar-open").textContent).toBe(
+      "closed",
+    );
   });
 });

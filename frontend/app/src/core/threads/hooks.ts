@@ -43,6 +43,7 @@ import type {
   ExecutionStatus,
   TaskRunningEvent,
 } from "./types";
+import { buildProvisionalThreadTitle } from "./utils";
 
 export type ToolEndEvent = {
   name: string;
@@ -77,9 +78,6 @@ const PENDING_RUN_RECOVERY_POLL_MS =
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 const ACTIVE_RUN_OWNER_STORAGE_PREFIX = "openagents:stream-owner:";
 const ACTIVE_RUN_METADATA_STORAGE_PREFIX = "lg:stream:";
-const PROVISIONAL_THREAD_TITLE_MAX_CHARS = 80;
-const ESCAPED_WHITESPACE_RE = /\\+(?:r\\n|n|r|t)/g;
-const ROLE_PREFIX_LINE_RE = /^(user|assistant|human|system)\s*:\s*(.*)$/i;
 type ThreadOverride = {
   source: "hydration" | "snapshot";
   values: AgentThreadState;
@@ -415,29 +413,6 @@ function buildOptimisticMessages(
   return optimisticMessages;
 }
 
-function normalizeProvisionalTitleLine(line: string) {
-  const roleMatch = ROLE_PREFIX_LINE_RE.exec(line);
-  const candidate = roleMatch ? (roleMatch[2] ?? "").trim() : line.trim();
-  return candidate.replace(/\s+/g, " ");
-}
-
-function buildProvisionalThreadTitle(text: string) {
-  const lines = text
-    .replace(ESCAPED_WHITESPACE_RE, "\n")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  for (const line of lines) {
-    const normalized = normalizeProvisionalTitleLine(line);
-    if (normalized) {
-      return normalized.slice(0, PROVISIONAL_THREAD_TITLE_MAX_CHARS);
-    }
-  }
-
-  return "Untitled";
-}
-
 function buildPendingThreadRecord(
   threadId: string,
   context: ThreadContext,
@@ -501,10 +476,11 @@ function upsertPendingThreadSearchResult(
   const nextItems = upsertPendingThreadRecord(oldData?.items, pendingRecord);
   // Query cache entries may be partially seeded with `total` before the first
   // page payload lands, so treat `items` as optional during pending inserts.
-  const inserted =
-    oldData?.items?.some((thread) => thread.thread_id === pendingRecord.thread_id)
-      ? 0
-      : 1;
+  const inserted = oldData?.items?.some(
+    (thread) => thread.thread_id === pendingRecord.thread_id,
+  )
+    ? 0
+    : 1;
 
   return {
     items: nextItems,
@@ -1033,8 +1009,7 @@ function applyExecutionEvent(
       event: "phase_finished",
       phase: event.phase,
       phase_kind: event.phase_kind,
-      started_at:
-        event.started_at ?? previous?.started_at ?? event.occurred_at,
+      started_at: event.started_at ?? previous?.started_at ?? event.occurred_at,
       run_started_at: runStartedAt,
       finished_at: event.finished_at ?? event.occurred_at,
       duration_ms: event.duration_ms,
@@ -1130,8 +1105,7 @@ function finalizeExecutionStatus(
     event: terminalEvent,
     finished_at: finishedAt,
     total_duration_ms: totalDurationMs,
-    error:
-      terminalEvent === "failed" ? normalizeThreadError(error) : undefined,
+    error: terminalEvent === "failed" ? normalizeThreadError(error) : undefined,
     // Interrupt-driven waits can pass through transient phase errors that are
     // runtime control payloads, not user-facing failures. Clear them whenever
     // the terminal state is not failed so completed/stopped banners never leak
@@ -1482,7 +1456,10 @@ export function useThreadStream({
       }
 
       if (isTaskRunningEvent(event)) {
-        updateSubtask({ id: event.task_id, latestMessage: event.message as AIMessage });
+        updateSubtask({
+          id: event.task_id,
+          latestMessage: event.message as AIMessage,
+        });
       }
     },
     onFinish(state) {

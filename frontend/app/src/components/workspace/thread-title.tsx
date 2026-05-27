@@ -1,8 +1,10 @@
 import type { BaseStream } from "@langchain/langgraph-sdk";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useI18n } from "@/core/i18n/hooks";
 import type { AgentThreadState } from "@/core/threads";
+import { useRenameThread } from "@/core/threads/query-hooks";
+import { buildFallbackThreadTitleFromMessages } from "@/core/threads/utils";
 import { cn } from "@/lib/utils";
 
 import { useThreadChat } from "./chats";
@@ -19,11 +21,21 @@ export function ThreadTitle({
 }) {
   const { t } = useI18n();
   const { isNewThread } = useThreadChat();
+  const { mutate: renameThread, isPending: isRenamingThread } =
+    useRenameThread();
+  const persistedFallbackRef = useRef<string | null>(null);
+  const explicitTitle = thread.values?.title?.trim() ?? "";
+  const fallbackTitle = useMemo(
+    () => buildFallbackThreadTitleFromMessages(thread.values?.messages),
+    [thread.values?.messages],
+  );
+  const visibleTitle = explicitTitle || fallbackTitle;
+
   useEffect(() => {
     const pageTitle = isNewThread
       ? t.pages.newChat
-      : thread.values?.title && thread.values.title !== "Untitled"
-        ? thread.values.title
+      : visibleTitle && visibleTitle !== "Untitled"
+        ? visibleTitle
         : t.pages.untitled;
     if (thread.isThreadLoading) {
       document.title = `Loading... - ${t.pages.appName}`;
@@ -36,14 +48,51 @@ export function ThreadTitle({
     t.pages.untitled,
     t.pages.appName,
     thread.isThreadLoading,
-    thread.values?.title,
+    visibleTitle,
   ]);
 
-  if (!thread.values?.title) {
+  useEffect(() => {
+    if (
+      isNewThread ||
+      threadId === "new" ||
+      thread.isThreadLoading ||
+      explicitTitle ||
+      !fallbackTitle ||
+      isRenamingThread
+    ) {
+      return;
+    }
+
+    const persistenceKey = `${threadId}:${fallbackTitle}`;
+    if (persistedFallbackRef.current === persistenceKey) {
+      return;
+    }
+
+    // Older threads can predate runtime title persistence. Once full state is
+    // loaded, backfill the same first-turn title so the sidebar search list no
+    // longer falls back to `Untitled` after refresh.
+    persistedFallbackRef.current = persistenceKey;
+    renameThread(
+      { threadId, title: fallbackTitle },
+      {
+        onError: () => {
+          persistedFallbackRef.current = null;
+        },
+      },
+    );
+  }, [
+    explicitTitle,
+    fallbackTitle,
+    isNewThread,
+    isRenamingThread,
+    renameThread,
+    thread.isThreadLoading,
+    threadId,
+  ]);
+
+  if (!visibleTitle) {
     return null;
   }
-
-  const visibleTitle = thread.values.title ?? "Untitled";
 
   return (
     <FlipDisplay uniqueKey={threadId} className={cn("min-w-0", className)}>

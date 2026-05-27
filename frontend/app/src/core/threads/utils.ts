@@ -17,6 +17,10 @@ type ThreadPathOptions = {
   isPendingRun?: boolean;
 };
 
+const PROVISIONAL_THREAD_TITLE_MAX_CHARS = 80;
+const ESCAPED_WHITESPACE_RE = /\\+(?:r\\n|n|r|t)/g;
+const ROLE_PREFIX_LINE_RE = /^(user|assistant|human|system)\s*:\s*(.*)$/i;
+
 function safeDecodePathSegment(segment: string) {
   try {
     return decodeURIComponent(segment);
@@ -198,6 +202,48 @@ export function textOfMessage(message: Message) {
   return null;
 }
 
+function normalizeProvisionalTitleLine(line: string) {
+  const roleMatch = ROLE_PREFIX_LINE_RE.exec(line);
+  const candidate = roleMatch ? (roleMatch[2] ?? "").trim() : line.trim();
+  return candidate.replace(/\s+/g, " ");
+}
+
+export function buildProvisionalThreadTitle(text: string) {
+  const lines = text
+    .replace(ESCAPED_WHITESPACE_RE, "\n")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const normalized = normalizeProvisionalTitleLine(line);
+    if (normalized) {
+      return normalized.slice(0, PROVISIONAL_THREAD_TITLE_MAX_CHARS);
+    }
+  }
+
+  return "Untitled";
+}
+
+export function buildFallbackThreadTitleFromMessages(
+  messages: Message[] | null | undefined,
+) {
+  const firstHumanMessage = messages?.find(
+    (message) => message.type === "human",
+  );
+  if (!firstHumanMessage) {
+    return null;
+  }
+
+  const textContent = textOfMessage(firstHumanMessage);
+  if (!textContent) {
+    return null;
+  }
+
+  const title = buildProvisionalThreadTitle(textContent);
+  return title === "Untitled" ? null : title;
+}
+
 export function buildThreadCompletionNotificationBody(
   threadState: Pick<AgentThread["values"], "messages">,
 ) {
@@ -217,5 +263,12 @@ export function buildThreadCompletionNotificationBody(
 }
 
 export function titleOfThread(thread: AgentThread) {
-  return thread.values?.title ?? "Untitled";
+  const explicitTitle = thread.values?.title?.trim();
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
+  return (
+    buildFallbackThreadTitleFromMessages(thread.values?.messages) ?? "Untitled"
+  );
 }

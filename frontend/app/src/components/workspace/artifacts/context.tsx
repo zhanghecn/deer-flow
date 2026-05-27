@@ -58,11 +58,19 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const [autoSelect, setAutoSelect] = useState(true);
   const [open, setOpen] = useState(env.VITE_STATIC_WEBSITE_ONLY === "true");
   const [autoOpen, setAutoOpen] = useState(true);
-  const { setOpen: setSidebarOpen } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
   const workspaceSurface = useOptionalWorkspaceSurface();
   const openWorkspaceSurface = workspaceSurface?.openSurface;
   const syncWorkspaceThread = workspaceSurface?.syncThread;
   const rememberThreadHint = workspaceSurface?.rememberThreadHint;
+
+  const dismissMobileSidebar = useCallback(() => {
+    // Artifact previews should not collapse the persistent desktop navigation;
+    // only dismiss the temporary mobile drawer where it overlays the preview.
+    if (env.VITE_STATIC_WEBSITE_ONLY !== "true" && isMobile) {
+      setOpenMobile(false);
+    }
+  }, [isMobile, setOpenMobile]);
 
   const select = useCallback(
     (artifact: string, autoSelect = false) => {
@@ -71,9 +79,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
         current?.filepath === artifact ? current : null,
       );
       openWorkspaceSurface?.("preview");
-      if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
-        setSidebarOpen(false);
-      }
+      dismissMobileSidebar();
       if (!autoSelect) {
         setAutoSelect(false);
       }
@@ -89,9 +95,9 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       }
     },
     [
+      dismissMobileSidebar,
       openWorkspaceSurface,
       rememberThreadHint,
-      setSidebarOpen,
       setSelectedArtifact,
       setAutoSelect,
     ],
@@ -112,13 +118,11 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       });
       setOpen(true);
       openWorkspaceSurface?.("preview");
-      if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
-        setSidebarOpen(false);
-      }
+      dismissMobileSidebar();
       setAutoOpen(false);
       setAutoSelect(false);
     },
-    [openWorkspaceSurface, setSidebarOpen],
+    [dismissMobileSidebar, openWorkspaceSurface],
   );
 
   const deselect = useCallback(() => {
