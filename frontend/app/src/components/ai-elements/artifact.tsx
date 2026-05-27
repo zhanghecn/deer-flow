@@ -1,10 +1,4 @@
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { DEFAULT_LOCALE } from "@/core/i18n";
 import { getLocaleFromCookie } from "@/core/i18n/cookies";
 import { cn } from "@/lib/utils";
@@ -108,38 +102,32 @@ export const ArtifactAction = ({
   className,
   size = "sm",
   variant = "ghost",
+  title,
+  "aria-label": ariaLabel,
   ...props
 }: ArtifactActionProps) => {
-  const button = (
+  const actionLabel =
+    label ?? (typeof tooltip === "string" ? tooltip : undefined);
+
+  return (
     <Button
+      aria-label={ariaLabel ?? actionLabel}
       className={cn(
         "text-muted-foreground hover:text-foreground size-8 p-0",
         className,
       )}
       size={size}
+      title={title ?? actionLabel}
       type="button"
       variant={variant}
       {...props}
     >
       {Icon ? <Icon className="size-4" /> : children}
-      <span className="sr-only">{label || tooltip}</span>
+      {/* Native title keeps icon hints without Radix Slot ref churn during
+          office-dialog teardown, which can trigger React update-depth loops. */}
+      {actionLabel ? <span className="sr-only">{actionLabel}</span> : null}
     </Button>
   );
-
-  if (tooltip) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>{button}</TooltipTrigger>
-          <TooltipContent>
-            <p>{tooltip}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return button;
 };
 
 export type ArtifactContentProps = HTMLAttributes<HTMLDivElement>;

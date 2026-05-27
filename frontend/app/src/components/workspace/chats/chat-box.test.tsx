@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,8 +57,16 @@ vi.mock("@/components/workspace/artifacts", async () => {
   return {
     ...actual,
     ArtifactFileDetail: ({ filepath }: { filepath: string }) => {
+      const { setOpen } = actual.useArtifacts();
       artifactDetailRenderPaths.push(filepath);
-      return <div data-testid="artifact-detail">{filepath.split("/").pop()}</div>;
+      return (
+        <div data-testid="artifact-detail">
+          {filepath.split("/").pop()}
+          <button type="button" onClick={() => setOpen(false)}>
+            Mock artifact close
+          </button>
+        </div>
+      );
     },
     ArtifactFileList: ({ files }: { files: string[] }) => (
       <div data-testid="artifact-list">
@@ -360,6 +368,96 @@ describe("ChatBox", () => {
     expect(
       screen.queryByRole("heading", { name: "No preview selected" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not revive a closed office preview hint during hydration", async () => {
+    const artifactPath = "/mnt/user-data/outputs/agent-runtime-audit-deck.pptx";
+    localStorage.setItem(
+      "openagents.workspace-thread-hints",
+      JSON.stringify({
+        "thread-1": {
+          surface: "preview",
+          artifact_path: artifactPath,
+          updated_at: "2026-05-10T12:52:01.612Z",
+        },
+      }),
+    );
+    localStorage.setItem(
+      "openagents.local-settings",
+      JSON.stringify({
+        layout: {
+          workspace_dock_open: true,
+          workspace_dock_active_surface: "preview",
+        },
+      }),
+    );
+
+    const thread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [artifactPath],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const queryClient = createQueryClient();
+
+    render(
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: true,
+        threadId: "thread-1",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "No preview selected" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-detail")).not.toBeInTheDocument();
+  });
+
+  it("clears office preview hints when the modal is closed from artifact controls", async () => {
+    const artifactPath = "/mnt/user-data/outputs/deck.pptx";
+    const thread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [artifactPath],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const queryClient = createQueryClient();
+
+    render(
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: true,
+        threadId: "thread-1",
+        children: (
+          <OpenOfficeArtifact path={artifactPath} />
+        ),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mock artifact close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    const storedHints = JSON.parse(
+      localStorage.getItem("openagents.workspace-thread-hints") ?? "{}",
+    );
+    expect(storedHints["thread-1"]).toMatchObject({ surface: "files" });
+    expect(storedHints["thread-1"].artifact_path).toBeUndefined();
   });
 
   it("keeps artifact refresh keys stable when a thread flips into loading", () => {

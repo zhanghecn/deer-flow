@@ -225,9 +225,18 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
 
   useEffect(() => {
     if (!artifactsOpen && selectedOfficeArtifact) {
+      // The toolbar close action toggles the artifact modal flag directly
+      // instead of going through Dialog.onOpenChange, so clear the preview hint
+      // here as the canonical closed-modal cleanup path.
+      workspaceSurface.rememberThreadHint({ surface: "files" });
       deselect();
     }
-  }, [artifactsOpen, deselect, selectedOfficeArtifact]);
+  }, [
+    artifactsOpen,
+    deselect,
+    selectedOfficeArtifact,
+    workspaceSurface.rememberThreadHint,
+  ]);
 
   useEffect(() => {
     const threadHint = workspaceSurface.threadHint;
@@ -237,6 +246,16 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       !hintedPreviewArtifact ||
       !visibleArtifacts.includes(hintedPreviewArtifact)
     ) {
+      return;
+    }
+
+    if (
+      !artifactsOpen &&
+      getOnlyOfficeDocumentDescriptor(hintedPreviewArtifact)
+    ) {
+      // Office previews use a modal open flag in addition to the dock hint.
+      // A stale preview hint must not revive a closed modal, or the
+      // select/deselect effects will loop while restoring persisted state.
       return;
     }
 
@@ -250,6 +269,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     // the dock, the hint must not continuously pull the preview back.
     selectArtifact(hintedPreviewArtifact, true);
   }, [
+    artifactsOpen,
     selectArtifact,
     threadSelectedArtifact,
     threadId,
@@ -326,6 +346,9 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
           onOpenChange={(nextOpen) => {
             setArtifactsOpen(nextOpen);
             if (!nextOpen) {
+              // Closing the modal should leave a lightweight files hint, not a
+              // preview hint that can reopen the same Office selection later.
+              workspaceSurface.rememberThreadHint({ surface: "files" });
               deselect();
             }
           }}
