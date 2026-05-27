@@ -195,6 +195,9 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       : null;
   }, [threadSelectedArtifact]);
   const officeDialogOpen = artifactsOpen && selectedOfficeArtifact !== null;
+  const dockSelectedArtifact = selectedOfficeArtifact
+    ? null
+    : threadSelectedArtifact;
 
   useEffect(() => {
     if (!hasSameArtifacts(threadArtifacts, visibleArtifacts)) {
@@ -334,7 +337,10 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
           >
             <WorkspaceSurfaceDock
               threadId={threadId}
-              selectedArtifact={threadSelectedArtifact}
+              // Office documents are rendered in the modal below. Do not also
+              // render them in the dock, because ONLYOFFICE binds editor
+              // instances by DOM id and duplicate editors can race or blank.
+              selectedArtifact={dockSelectedArtifact}
               visibleArtifacts={visibleArtifacts}
             />
           </div>

@@ -199,6 +199,7 @@ describe("ChatBox", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
+    expect(screen.getAllByTestId("artifact-detail")).toHaveLength(1);
     expect(document.body.textContent).toContain("deck.pptx");
     expect(document.body.textContent).not.toContain(
       "/mnt/user-data/outputs/deck.pptx",
