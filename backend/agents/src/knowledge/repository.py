@@ -128,11 +128,32 @@ class KnowledgeRepository:
     ) -> None:
         query = """
             INSERT INTO knowledge_thread_bindings (thread_id, knowledge_base_id, user_id)
-            VALUES (%s, %s::uuid, %s::uuid)
+            SELECT %s, b.id, %s::uuid
+            FROM knowledge_bases b
+            WHERE b.id = %s::uuid
+              AND (b.user_id = %s::uuid OR b.visibility = 'shared')
             ON CONFLICT (thread_id, knowledge_base_id) DO NOTHING
         """
+        existing_query = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM knowledge_thread_bindings
+                WHERE thread_id = %s
+                  AND knowledge_base_id = %s::uuid
+                  AND user_id = %s::uuid
+            )
+        """
         with self.connection() as conn, conn.cursor() as cur:
-            cur.execute(query, (thread_id, knowledge_base_id, user_id))
+            # Runtime agent defaults use the same tenant/visibility gate as
+            # manual UI attachments before becoming thread-scope state.
+            cur.execute(query, (thread_id, user_id, knowledge_base_id, user_id))
+            if cur.rowcount and cur.rowcount > 0:
+                return
+            cur.execute(existing_query, (thread_id, knowledge_base_id, user_id))
+            row = cur.fetchone()
+            if row is not None and bool(row[0]):
+                return
+        raise ValueError(f"Knowledge base '{knowledge_base_id}' is not visible to user '{user_id}'.")
 
     def create_build_job(
         self,

@@ -992,6 +992,31 @@ def _persist_thread_runtime(
     )
 
 
+def _materialize_agent_default_knowledge_bases(
+    *,
+    request: LeadAgentRequest,
+    agent_config: AgentConfig,
+    repository: Any | None = None,
+) -> None:
+    if not request.thread_id or not request.user_id or not agent_config.knowledge_base_ids:
+        return
+
+    if repository is None:
+        from src.knowledge import KnowledgeRepository
+
+        repository = KnowledgeRepository()
+
+    for knowledge_base_id in agent_config.knowledge_base_ids:
+        # Agent archive defaults are persisted into thread bindings before the
+        # knowledge middleware runs, keeping UI state and prompt-visible
+        # workspaces on the same knowledge_thread_bindings source of truth.
+        repository.attach_base_to_thread(
+            thread_id=request.thread_id,
+            knowledge_base_id=knowledge_base_id,
+            user_id=request.user_id,
+        )
+
+
 def _bind_request_to_thread_runtime(
     *,
     request: LeadAgentRequest,
@@ -1329,6 +1354,10 @@ def _resolve_lead_agent_runtime(
             agent_status=effective_request.agent_status,
             execution_backend=effective_request.execution_backend,
             remote_session_id=effective_request.remote_session_id,
+        )
+        _materialize_agent_default_knowledge_bases(
+            request=effective_request,
+            agent_config=agent_config,
         )
     return (
         effective_request,

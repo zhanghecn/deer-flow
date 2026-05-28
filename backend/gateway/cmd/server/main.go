@@ -137,7 +137,7 @@ func main() {
 	runtimeWorkspaceH := handler.NewRuntimeWorkspaceHandler(threadRepo, cfg.Upstream.LangGraphURL)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, modelRepo, fs, knowledgeAssetStore)
+	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, threadRepo, modelRepo, fs, knowledgeAssetStore)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:         cfg.OnlyOffice.ServerURL,
 		InternalServerURL: cfg.OnlyOffice.InternalServerURL,

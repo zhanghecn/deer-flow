@@ -23,6 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/knowledgeasset"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
@@ -32,6 +33,7 @@ import (
 
 type KnowledgeHandler struct {
 	repo       *repository.KnowledgeRepo
+	threadRepo *repository.ThreadRepo
 	modelRepo  *repository.ModelRepo
 	fs         *storage.FS
 	assetStore *knowledgeasset.Store
@@ -179,11 +181,63 @@ var knowledgeWorkspaceTypeAffinity = map[string]map[string]float64{
 
 func NewKnowledgeHandler(
 	repo *repository.KnowledgeRepo,
+	threadRepo *repository.ThreadRepo,
 	modelRepo *repository.ModelRepo,
 	fs *storage.FS,
 	assetStore *knowledgeasset.Store,
 ) *KnowledgeHandler {
-	return &KnowledgeHandler{repo: repo, modelRepo: modelRepo, fs: fs, assetStore: assetStore}
+	return &KnowledgeHandler{repo: repo, threadRepo: threadRepo, modelRepo: modelRepo, fs: fs, assetStore: assetStore}
+}
+
+func (h *KnowledgeHandler) materializeAgentDefaultKnowledgeBases(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+) error {
+	if h.threadRepo == nil || h.repo == nil || h.fs == nil || userID == uuid.Nil || strings.TrimSpace(threadID) == "" {
+		return nil
+	}
+
+	binding, err := h.threadRepo.GetRuntimeByUser(ctx, userID, threadID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if binding == nil {
+		return nil
+	}
+
+	agentName := ""
+	if binding.AgentName != nil {
+		agentName = strings.TrimSpace(*binding.AgentName)
+	}
+	if agentName == "" {
+		return nil
+	}
+
+	agentStatus := strings.TrimSpace(binding.AgentStatus)
+	if agentStatus == "" {
+		agentStatus = "dev"
+	}
+	agent, err := agentfs.LoadAgent(h.fs, agentName, agentStatus, false)
+	if err != nil {
+		return fmt.Errorf("load bound agent %s (%s): %w", agentName, agentStatus, err)
+	}
+	if agent == nil {
+		return fmt.Errorf("bound agent %s (%s) not found", agentName, agentStatus)
+	}
+
+	for _, knowledgeBaseID := range agent.KnowledgeBaseIDs {
+		// Agent archive defaults become persisted thread attachments before
+		// listing so existing chats, selectors, and runtime prompts all observe
+		// the same knowledge_thread_bindings contract.
+		if err := h.repo.AttachBaseToThread(ctx, userID, threadID, knowledgeBaseID); err != nil {
+			return fmt.Errorf("attach default knowledge base %s to thread %s: %w", knowledgeBaseID, threadID, err)
+		}
+	}
+	return nil
 }
 
 func (h *KnowledgeHandler) List(c *gin.Context) {
@@ -199,6 +253,10 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 		return
 	}
 
+	if err := h.materializeAgentDefaultKnowledgeBases(c.Request.Context(), userID, threadID); err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to attach agent default knowledge bases"})
+		return
+	}
 	items, err := h.repo.ListByThread(c.Request.Context(), userID, threadID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge bases"})
@@ -221,6 +279,10 @@ func (h *KnowledgeHandler) ListLibrary(c *gin.Context) {
 	}
 
 	threadID := strings.TrimSpace(c.Query("thread_id"))
+	if err := h.materializeAgentDefaultKnowledgeBases(c.Request.Context(), userID, threadID); err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to attach agent default knowledge bases"})
+		return
+	}
 	items, err := h.repo.ListVisible(c.Request.Context(), userID, threadID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge library"})
