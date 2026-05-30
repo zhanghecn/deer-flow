@@ -42,7 +42,7 @@ tool_groups:
     assert {"use": "tests.fake_tools:fake_tool"} in tools
 
 
-def test_get_available_tools_includes_default_knowledge_retrieval_tools(monkeypatch, tmp_path: Path):
+def test_get_available_tools_default_surface_is_explicit(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -64,14 +64,10 @@ tool_groups: []
 
     tool_names = {tool.name for tool in tools if hasattr(tool, "name")}
 
-    assert "question" in tool_names
-    assert "list_knowledge_documents" not in tool_names
-    assert "search_knowledge_workspace" in tool_names
-    assert "get_wiki_page" in tool_names
-    assert "get_source_evidence" in tool_names
-    assert "get_knowledge_graph" in tool_names
-    assert "get_workspace_file_tree" in tool_names
-    assert not any(name.startswith("get_document_") for name in tool_names)
+    assert tool_names == {
+        "present_files",
+        "question",
+    }
 
 
 def test_get_available_tools_does_not_duplicate_read_file_image_support(monkeypatch, tmp_path: Path):
@@ -191,7 +187,7 @@ tool_groups: []
     monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
 
     tools = get_available_tools(
-        tool_names=["search_knowledge_workspace"],
+        tool_names=["present_files"],
         include_mcp=False,
         model_supports_vision=False,
         agent_status="dev",
@@ -205,7 +201,7 @@ tool_groups: []
     )
 
     assert [tool.name for tool in tools] == [
-        "search_knowledge_workspace",
+        "present_files",
         "install_skill_from_registry",
         "save_skill_to_store",
         "setup_agent",

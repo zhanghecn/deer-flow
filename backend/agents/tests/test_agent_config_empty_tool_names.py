@@ -2,7 +2,9 @@ from src.config.agents_config import (
     AgentConfig,
     AgentSubagentConfig,
     AgentSubagentDefaults,
+    load_agent_config,
 )
+from src.config.paths import Paths
 
 
 def test_agent_config_preserves_explicit_empty_tool_names() -> None:
@@ -58,3 +60,18 @@ def test_subagent_config_preserves_explicit_empty_tool_names() -> None:
     )
 
     assert subagent.tool_names == []
+
+
+def test_load_agent_config_status_comes_from_requested_archive(tmp_path) -> None:
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents")
+    agent_dir = paths.custom_agent_dir("reporter", "dev")
+    agent_dir.mkdir(parents=True)
+    agent_dir.joinpath("config.yaml").write_text(
+        "name: reporter\nstatus: prod\nagents_md_path: AGENTS.md\n",
+        encoding="utf-8",
+    )
+
+    config = load_agent_config("reporter", status="dev", paths=paths)
+
+    assert config is not None
+    assert config.status == "dev"

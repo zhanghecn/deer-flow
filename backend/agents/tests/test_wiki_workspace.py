@@ -16,7 +16,7 @@ from src.knowledge.storage import KnowledgeAssetStore
 from src.knowledge.wiki_workspace import (
     KnowledgeWorkspaceStore,
     build_knowledge_graph_payload,
-    get_source_evidence_payload,
+    build_source_evidence_payload,
     search_workspaces,
     source_slug,
     sync_indexed_document_to_workspace,
@@ -813,7 +813,7 @@ def test_search_and_source_evidence_use_workspace_files(tmp_path, monkeypatch):
     assert result["results"][0]["path"] == "wiki/sources/contract.md"
     assert result["results"][0]["workspace_id"] == workspace.id
 
-    evidence = get_source_evidence_payload(
+    evidence = build_source_evidence_payload(
         store=store,
         workspace=workspace,
         query="催告后仍未履行",
@@ -883,7 +883,7 @@ def test_search_raw_source_cache_ranks_late_exact_hits_after_noisy_sources(tmp_p
     assert "壬午日元丑月生" in source_hits[0]["snippet"]
 
 
-def test_get_source_evidence_expands_line_numbered_source_hit(tmp_path, monkeypatch):
+def test_source_evidence_payload_expands_line_numbered_source_hit(tmp_path, monkeypatch):
     store = _store(tmp_path, monkeypatch)
     workspace = _workspace()
     store.write_text(
@@ -900,7 +900,7 @@ def test_get_source_evidence_expands_line_numbered_source_hit(tmp_path, monkeypa
         ),
     )
 
-    detail = get_source_evidence_payload(
+    detail = build_source_evidence_payload(
         store=store,
         workspace=workspace,
         query="戊午 庚申 丁巳 甲辰",
@@ -916,7 +916,7 @@ def test_get_source_evidence_expands_line_numbered_source_hit(tmp_path, monkeypa
     assert "L4: 分析：子运庚子年触发申子辰会水。" in detail["snippets"][0]["text"]
 
 
-def test_get_source_evidence_uses_same_proximity_matching_as_search(tmp_path, monkeypatch):
+def test_source_evidence_payload_uses_same_proximity_matching_as_search(tmp_path, monkeypatch):
     store = _store(tmp_path, monkeypatch)
     workspace = _workspace()
     store.write_text(
@@ -932,7 +932,7 @@ def test_get_source_evidence_uses_same_proximity_matching_as_search(tmp_path, mo
         ),
     )
 
-    evidence = get_source_evidence_payload(
+    evidence = build_source_evidence_payload(
         store=store,
         workspace=workspace,
         query="戊午 庚申 丁巳 甲辰",
@@ -943,12 +943,12 @@ def test_get_source_evidence_uses_same_proximity_matching_as_search(tmp_path, mo
     assert "L3: | 八字 | `戊午年 庚申月 丁巳日 甲辰时` |" in evidence["snippets"][0]["text"]
 
 
-def test_get_source_evidence_does_not_return_source_start_when_query_misses(tmp_path, monkeypatch):
+def test_source_evidence_payload_does_not_return_source_start_when_query_misses(tmp_path, monkeypatch):
     store = _store(tmp_path, monkeypatch)
     workspace = _workspace()
     store.write_text(workspace, "raw/sources/.cache/contract.txt", "第一章 解除权。\n第二章 违约责任。")
 
-    evidence = get_source_evidence_payload(
+    evidence = build_source_evidence_payload(
         store=store,
         workspace=workspace,
         query="完全不存在的精确短语",

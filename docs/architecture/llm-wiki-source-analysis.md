@@ -1,5 +1,12 @@
 # llm-wiki 源码流转与编译产物说明
 
+> Current OpenAgents note: this document analyzes llm-wiki internals and an
+> earlier Wiki Workspace-first integration. As of 2026-05-30, the canonical
+> OpenAgents agent retrieval contract is filesystem-first:
+> `/mnt/user-data/knowledge/...` + `glob` / `grep` / `read_file`. Use
+> [knowledge-base.md](/root/project/ai/deer-flow/docs/architecture/knowledge-base.md)
+> for the current product/runtime contract.
+
 本文按本地源码 `/root/project/ai/llm_wiki` 重写，目标不是介绍概念，而是回答一个具体问题：
 **用户把文件放进知识库以后，代码经过哪些路径，最终落下哪些文件，这些文件大概长什么样。**
 
@@ -1267,9 +1274,9 @@ async function handleSend(text: string) {
 - 图谱扩展不是单独替代检索，而是在搜索结果之后扩大相关页面集合。
 - 上下文预算是 chat 侧最后一道闸门，防止多文档库把 prompt 塞爆。
 
-## 10. OpenAgents Agent 工具检索链路
+## 10. OpenAgents Agent 文件检索链路
 
-OpenAgents 的 agent 不应该直接知道 MinIO、本地路径、`workspace/` 前缀，也不应该 `glob` 或 `read_file` 去扫挂载目录。正确链路是：
+OpenAgents 当前的 agent-facing 知识库契约已经改成 filesystem-first：知识库编译结果仍然对齐 llm-wiki 的 `workspace/wiki/**/*.md`、`raw/sources/.cache/**`、`wiki/media/**` 等文件结构，但 agent 不再调用专门的语义知识库工具。运行时只把当前线程已绑定知识库挂载到稳定路径，并让模型使用通用文件工具检索。
 
 ```text
 用户提问
@@ -1280,39 +1287,25 @@ Agent model call
   v
 KnowledgeContextMiddleware
   - 根据 runtime.context 解析 user_id/thread_id
-  - 查询当前 thread 已挂载的 ready workspaces
-  - 把工具使用协议和 workspace_id/name 注入 system prompt
+  - 查询当前 thread 已绑定且 ready 的知识库
+  - 注入每个知识库的 mount_path
   |
   v
-模型选择工具
-  search_knowledge_workspace(query=..., workspace_name_or_id=<workspace_id>)
+Runtime backend factory
+  - 在 /mnt/user-data/knowledge/ 下挂载只读知识库文件路由
+  - 底层仍从 Knowledge Asset Store 读取 MinIO/filesystem 对象
   |
   v
-knowledge_tools.py
-  - 从 ToolRuntime 解析身份
-  - 调 KnowledgeService
+模型使用通用文件工具
+  ls / glob      -> 看挂载目录和候选文件
+  grep           -> 在 wiki/source cache 中定位精确命中行
+  read_file      -> 按 offset/limit 分页读取带行号正文
   |
   v
-KnowledgeService
-  - 只允许访问 thread binding 里的知识库
-  - 调 wiki_workspace.py 搜索 workspace/wiki/**/*.md
-  |
-  v
-KnowledgeWorkspaceStore
-  - 把 workspace 相对路径映射到 Knowledge Asset Store storage_ref
-  - 从 MinIO/filesystem 读取编译后的 wiki 页面
-  |
-  v
-工具返回 JSON
-  |
-  v
-模型继续调用 get_wiki_page / get_source_evidence
-  |
-  v
-模型生成带引用的最终回答
+模型基于可见行号和路径生成带来源的回答
 ```
 
-### 10.1 Runtime prompt 注入：让 agent 知道可用知识库
+### 10.1 Runtime prompt 注入：只告诉挂载位置
 
 源码锚点：
 
@@ -1325,253 +1318,92 @@ KnowledgeWorkspaceStore
 ```python
 def _thread_workspaces(runtime_context: object) -> list[KnowledgeWorkspaceRecord]:
     try:
-        # 从 runtime.context 解析当前运行身份。
-        # 这里不能从用户自然语言里猜 owner/thread，因为知识库可见性是权限问题。
+        # 身份只能来自 runtime.context，不能从用户自然语言中猜 owner/thread。
         user_id, thread_id = resolve_knowledge_runtime_identity(runtime_context)
     except ValueError:
         return []
 
-    # 只读取当前 thread 已持久化绑定的 workspace。
-    # 这就是 agent 问答可见知识库的唯一来源。
+    # 当前 thread 的 binding 是 agent 可见知识库的唯一来源。
     return KnowledgeService().get_thread_workspace_records(
         user_id=user_id,
         thread_id=thread_id,
     )
 
 
-def _build_knowledge_protocol_prompt(workspaces):
-    lines = [
-        "<knowledge_tool_protocol>",
-        # 只有当前 turn 需要知识库时才启用，不污染普通聊天。
-        "  <activation_rule>Apply this protocol only when the current turn needs attached knowledge retrieval...</activation_rule>",
-        # 默认从 workspace 搜索开始，而不是旧 PageTree，也不是 filesystem grep。
-        "  <rule>When this protocol is active, start with search_knowledge_workspace(query=...) unless you already have an exact wiki page path.</rule>",
-        # 搜索结果只是候选，回答前必须打开页面全文。
-        "  <rule>When search results identify a relevant page, call get_wiki_page(workspace_name_or_id=..., page_path=...) before answering.</rule>",
-        # 只有需要窄原文证据时才读 raw cache。
-        "  <rule>When the answer needs narrower original-source text, call get_source_evidence(...).</rule>",
-        # 强制模型使用注入的 workspace_id，避免猜 bazi-knowledge 这种名字。
-        "  <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>",
-        # 旧 PageTree 工具不再暴露给 agent。
-        "  <rule>Only workspace knowledge tools are available for attached knowledge retrieval.</rule>",
-        # 禁止通过通用文件工具绕过知识库协议。
-        "  <rule>Do not use grep, glob, read_file, ls, find, execute, or mounted filesystem paths to inspect attached knowledge...</rule>",
-        "</knowledge_tool_protocol>",
-    ]
-    return "\n".join(lines)
-
-
-class KnowledgeContextMiddleware(AgentMiddleware):
-    def wrap_model_call(self, request, handler):
-        # 每次模型调用前动态读取当前 thread bindings。
-        # 这样前端新绑定/解绑知识库后，下一轮 prompt 会反映最新状态。
-        workspaces = _thread_workspaces(request.runtime.context)
-        knowledge_prompt = build_knowledge_context_prompt(
-            request.runtime.context,
-            workspaces=workspaces,
-        )
-        if knowledge_prompt:
-            request = request.override(
-                system_message=append_to_system_message(
-                    request.system_message,
-                    knowledge_prompt,
-                )
-            )
-        return handler(request)
+def build_knowledge_context_prompt(...):
+    # prompt 不暴露 MinIO key、宿主机路径或内部 storage_ref。
+    # 它只列出 agent 可见的 mount_path，让模型用通用文件工具读取。
+    for workspace in workspaces:
+        lines.append(f"<mount_path>{knowledge_workspace_mount_path(workspace)}</mount_path>")
 ```
 
 模拟注入给模型的 XML：
 
 ```xml
 <knowledge_context>
-  <knowledge_tool_protocol>
-    <rule>When this protocol is active, start with search_knowledge_workspace(query=...) unless you already have an exact wiki page path.</rule>
-    <rule>When search results identify a relevant page, call get_wiki_page(workspace_name_or_id=..., page_path=...) before answering.</rule>
-    <rule>When the answer needs narrower original-source text, call get_source_evidence(workspace_name_or_id=..., query=..., source_path_or_name=...).</rule>
-    <rule>Use workspace_id values from &lt;knowledge_attached_workspaces&gt; for workspace_name_or_id whenever possible.</rule>
-  </knowledge_tool_protocol>
-  <knowledge_thread_bindings>
-    <summary>This thread has 1 attached knowledge workspace(s), 1 with ready documents.</summary>
-  </knowledge_thread_bindings>
+  <summary>This thread has 1 attached knowledge workspace.</summary>
   <knowledge_attached_workspaces>
-    <usage_rule>Only use the attached workspaces listed in this XML block for knowledge retrieval.</usage_rule>
-    <usage_rule>Use the exact workspace_id value when calling workspace knowledge tools.</usage_rule>
-    <workspaces>
-      <workspace>
-        <workspace_id>8cb640bd-5906-4fc8-813d-712343572e27</workspace_id>
-        <name>bazi-knowledge</name>
-        <owner_id>d333fa13-7b40-40e2-8564-2fa6c34e1b78</owner_id>
-        <description>八字案例大全</description>
-        <document_count>100</document_count>
-        <ready_document_count>100</ready_document_count>
-      </workspace>
-    </workspaces>
+    <workspace>
+      <workspace_id>8cb640bd-5906-4fc8-813d-712343572e27</workspace_id>
+      <name>bazi-knowledge</name>
+      <mount_path>/mnt/user-data/knowledge/bazi-knowledge__8cb640bd-5906-4fc8-813d-712343572e27</mount_path>
+      <document_count>100</document_count>
+      <ready_document_count>100</ready_document_count>
+    </workspace>
   </knowledge_attached_workspaces>
 </knowledge_context>
 ```
 
-这里的重点是：模型应该把 `8cb640bd-5906-4fc8-813d-712343572e27` 传给工具，而不是自己猜 `bazi-knowledge`。名字可以重名，id 才稳定。
+这里的重点是：模型不需要知道对象存储、数据库记录或内部实现。它只需要把 `mount_path` 当成只读目录，并使用已有文件工具完成检索。
 
-### 10.2 Tool 入口：模型调用的不是检索库内部函数
-
-源码锚点：
-
-- `/root/project/ai/deer-flow/backend/agents/src/tools/builtins/knowledge_tools.py`
-
-主工具中文注释版：
-
-```python
-@tool("search_knowledge_workspace", parse_docstring=True)
-def search_knowledge_workspace(
-    runtime: ToolRuntime[ContextT, ThreadState],
-    query: str,
-    workspace_name_or_id: str | None = None,
-    limit: int = 10,
-) -> str:
-    """Search attached llm-wiki style knowledge workspaces."""
-
-    # 工具调用来自模型，但权限身份来自 runtime，不相信模型传入的 owner/thread。
-    user_id, thread_id = _runtime_identity(runtime)
-
-    # service 层负责校验 thread binding，并把结果格式化成 compact JSON string。
-    return KnowledgeService().search_knowledge_workspace(
-        user_id=user_id,
-        thread_id=thread_id,
-        query=query,
-        workspace_name_or_id=workspace_name_or_id,
-        limit=limit,
-    )
-
-
-@tool("get_wiki_page", parse_docstring=True)
-def get_wiki_page(runtime, workspace_name_or_id: str, page_path: str) -> str:
-    # search_knowledge_workspace 返回 path 后，模型必须再读页面全文。
-    # page_path 是 workspace-relative path，例如 wiki/sources/foo.md。
-    user_id, thread_id = _runtime_identity(runtime)
-    return KnowledgeService().get_wiki_page(
-        user_id=user_id,
-        thread_id=thread_id,
-        workspace_name_or_id=workspace_name_or_id,
-        page_path=page_path,
-    )
-
-
-@tool("get_source_evidence", parse_docstring=True)
-def get_source_evidence(
-    runtime,
-    workspace_name_or_id: str,
-    query: str,
-    source_path_or_name: str | None = None,
-    max_snippets: int = 5,
-) -> str:
-    # 这是窄原文证据工具，只查 raw/sources/.cache/**。
-    # 它不把完整 PDF/DOCX 暴露给模型，避免 token 爆炸和越权路径读取。
-    user_id, thread_id = _runtime_identity(runtime)
-    return KnowledgeService().get_source_evidence(
-        user_id=user_id,
-        thread_id=thread_id,
-        workspace_name_or_id=workspace_name_or_id,
-        query=query,
-        source_path_or_name=source_path_or_name,
-        max_snippets=max_snippets,
-    )
-```
-
-默认工具顺序：
-
-```text
-search_knowledge_workspace
-  -> get_wiki_page
-  -> get_source_evidence（只有需要原文证据时）
-  -> get_knowledge_graph（需要关系/图谱审查时）
-  -> get_workspace_file_tree（调试/导航时）
-```
-
-旧 PageTree 工具不再作为 agent-facing tool 暴露。用户之前看到模型把“知识库名”当成“文档名”传入的错误，根因就是旧工具链路仍可见。当前正确动作应该是：
-
-```text
-search_knowledge_workspace(
-  query="壬寅日主丑月出生的案例",
-  workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27"
-)
-```
-
-### 10.3 Service 层：只允许访问当前线程绑定的 workspace
+### 10.2 Runtime backend：把知识库呈现为只读文件树
 
 源码锚点：
 
-- `/root/project/ai/deer-flow/backend/agents/src/knowledge/service.py`
-- `_resolve_thread_workspaces(...)`
-- `search_knowledge_workspace(...)`
-- `get_wiki_page(...)`
-- `get_source_evidence(...)`
+- `/root/project/ai/deer-flow/backend/agents/src/runtime_backends/factory.py`
+- `/root/project/ai/deer-flow/backend/agents/src/runtime_backends/knowledge_filesystem.py`
+- `/root/project/ai/deer-flow/backend/agents/src/knowledge/runtime_mount.py`
 
-中文注释版：
+核心源码中文注释版：
 
 ```python
-def _resolve_thread_workspaces(
-    self,
-    *,
-    user_id: str,
-    thread_id: str,
-    workspace_name_or_id: str | None = None,
-    ready_only: bool = True,
-) -> tuple[list[KnowledgeWorkspaceRecord], str | None]:
-    # 唯一可见范围：当前 user/thread 的 knowledge_thread_bindings。
-    # 这里不接收前端 extra_context 临时塞的 ids，也不从 prompt 文字猜。
-    workspaces = self.get_thread_workspace_records(
+KNOWLEDGE_ROUTE_PREFIX = "/mnt/user-data/knowledge/"
+
+
+def _attach_thread_knowledge_route(backend, *, thread_id: str, user_id: str | None):
+    # 没有 user_id 时不挂载，避免匿名或系统任务误读知识库。
+    if not user_id:
+        return backend
+
+    # 知识库 route 是只读 BackendProtocol。它和默认 workspace backend 组合，
+    # 所以同一套 ls/glob/grep/read_file 工具可以同时读用户文件和知识库文件。
+    knowledge_backend = ThreadKnowledgeFilesystemBackend(
         user_id=user_id,
         thread_id=thread_id,
-        ready_only=ready_only,
     )
-
-    candidate = str(workspace_name_or_id or "").strip()
-
-    # 没传 workspace 时，默认搜索当前线程所有 ready workspaces。
-    if not candidate:
-        if workspaces:
-            return workspaces, None
-        return [], "Error: no attached knowledge workspaces are ready for retrieval."
-
-    # 传了 workspace 时，只能匹配注入 XML 里的 id 或 exact name。
-    matched = _match_workspace_records(workspaces, candidate)
-    if matched:
-        return [matched], None
-
-    # 错误信息会明确提醒模型去看 <knowledge_attached_workspaces>。
-    return (
-        [],
-        "Error: knowledge workspace not found or not ready: "
-        f"{candidate}. Use a workspace_id or exact workspace name from "
-        "<knowledge_attached_workspaces> first.",
+    return CompositeBackend(
+        default=backend,
+        routes={KNOWLEDGE_ROUTE_PREFIX: knowledge_backend},
     )
-
-
-def search_knowledge_workspace(self, *, user_id, thread_id, query, workspace_name_or_id=None, limit=10) -> str:
-    workspaces, error = self._resolve_thread_workspaces(
-        user_id=user_id,
-        thread_id=thread_id,
-        workspace_name_or_id=workspace_name_or_id,
-    )
-    if error is not None:
-        return error
-
-    # 真正的搜索在 wiki_workspace.py。service 只做权限、参数和 JSON 输出边界。
-    payload = search_workspaces(
-        store=KnowledgeWorkspaceStore(),
-        workspaces=workspaces,
-        query=query,
-        limit=limit,
-    )
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 ```
 
-这层解决两个关键问题：
+`ThreadKnowledgeFilesystemBackend` 的行为：
 
-- **权限边界**：agent 只能搜当前线程绑定的库。
-- **名称歧义**：库名只是可读标签，工具参数应优先使用 workspace id。
+```text
+ls /mnt/user-data/knowledge/
+  -> 返回当前 thread 绑定的 ready workspace 目录
 
-### 10.4 Workspace Store：把逻辑路径映射到对象存储
+glob pattern="**/*.md" path="/mnt/user-data/knowledge/<workspace>/wiki"
+  -> 返回编译后的 wiki 页面路径
+
+grep pattern="壬寅" path="/mnt/user-data/knowledge/<workspace>"
+  -> 返回 path + line + text
+
+read_file path="/mnt/user-data/knowledge/<workspace>/wiki/sources/foo.md" offset=120 limit=80
+  -> 返回带行号正文和分页 footer
+```
+
+### 10.3 Workspace Store：底层仍然是 Knowledge Asset Store
 
 源码锚点：
 
@@ -1584,13 +1416,11 @@ def search_knowledge_workspace(self, *, user_id, thread_id, query, workspace_nam
 ```python
 class KnowledgeWorkspaceStore:
     def workspace_prefix(self, workspace: KnowledgeWorkspaceRecord) -> str:
-        # 注意这里用 workspace.owner_id，不用当前 user_id。
-        # 共享知识库被别人挂载时，资产仍然在原 owner 名下。
+        # 共享知识库被别人挂载时，资产仍归原 owner 所有。
         return f"knowledge/users/{workspace.owner_id}/bases/{workspace.id}/workspace"
 
     def storage_ref(self, workspace: KnowledgeWorkspaceRecord, relative_path: str) -> str:
-        # 所有工具只传 workspace 相对路径。
-        # normalize_workspace_path 会阻止 ../ 逃逸。
+        # agent 只传 workspace 内相对路径；normalize_workspace_path 防止 ../ 逃逸。
         safe_path = normalize_workspace_path(relative_path)
         return self._asset_store.storage_ref_from_relative_path(
             f"{self.workspace_prefix(workspace)}/{safe_path}"
@@ -1598,344 +1428,26 @@ class KnowledgeWorkspaceStore:
 
     def read_text(self, workspace: KnowledgeWorkspaceRecord, relative_path: str) -> str:
         # asset_store 决定底层是 MinIO 还是显式配置的本地 filesystem。
-        # agent 工具不关心底层实现，只拿到 text。
         return self._asset_store.read_text(self.storage_ref(workspace, relative_path))
-
-    def list_wiki_pages(self, workspace: KnowledgeWorkspaceRecord) -> list[WikiPage]:
-        pages: list[WikiPage] = []
-        for file in self.list_files(workspace, "wiki"):
-            if not file.path.endswith(".md"):
-                continue
-            pages.append(WikiPage(
-                workspace=workspace,
-                path=file.path,
-                content=self.read_text(workspace, file.path),
-            ))
-        return pages
 ```
 
-模拟路径展开：
+agent 可见路径和存储路径的关系：
 
 ```text
-workspace_id = 8cb640bd-5906-4fc8-813d-712343572e27
-owner_id     = d333fa13-7b40-40e2-8564-2fa6c34e1b78
-page_path    = wiki/concepts/壬寅日主丑月.md
+agent path:
+  /mnt/user-data/knowledge/bazi-knowledge__8cb.../wiki/concepts/壬水丑月.md
 
-逻辑 workspace path:
-  wiki/concepts/壬寅日主丑月.md
+workspace relative path:
+  wiki/concepts/壬水丑月.md
 
 Knowledge Asset Store relative path:
-  knowledge/users/d333fa13-7b40-40e2-8564-2fa6c34e1b78/bases/8cb640bd-5906-4fc8-813d-712343572e27/workspace/wiki/concepts/壬寅日主丑月.md
+  knowledge/users/<owner_id>/bases/<base_id>/workspace/wiki/concepts/壬水丑月.md
 
-MinIO 对象引用可能是:
-  s3://knowledge/users/d333fa13-7b40-40e2-8564-2fa6c34e1b78/bases/8cb640bd-5906-4fc8-813d-712343572e27/workspace/wiki/concepts/壬寅日主丑月.md
+MinIO object:
+  s3://openagents-knowledge/knowledge/users/<owner_id>/bases/<base_id>/workspace/wiki/concepts/壬水丑月.md
 ```
 
-### 10.5 Workspace 搜索：OpenAgents 当前如何对齐 llm-wiki
-
-源码锚点：
-
-- `/root/project/ai/deer-flow/backend/agents/src/knowledge/wiki_workspace.py`
-- `search_workspaces(...)`
-- `tokenize_query(...)`
-- `score_wiki_page(...)`
-
-中文注释版：
-
-```python
-def search_workspaces(*, store, workspaces, query: str, limit: int = MAX_SEARCH_RESULTS) -> dict[str, Any]:
-    query = str(query or "").strip()
-    if not query:
-        return {"query": query, "results": [], "next_steps": ["Provide a non-empty query."]}
-
-    # 与 llm-wiki search.ts 对齐：中文拆 bigram/单字/原词，并去停用词。
-    tokens = tokenize_query(query)
-    effective_tokens = tokens or [query.lower()]
-    query_phrase = TRIM_PUNCT_RE.sub("", query.strip().lower())
-
-    scored: list[dict[str, Any]] = []
-    for workspace in workspaces:
-        # 默认只搜 wiki/**/*.md，不扫 raw/sources 原文件。
-        for page in store.list_wiki_pages(workspace):
-            item = score_wiki_page(
-                workspace=workspace,
-                page_path=page.path,
-                content=page.content,
-                tokens=effective_tokens,
-                query_phrase=query_phrase,
-                query=query,
-            )
-            if item is not None:
-                scored.append(item)
-
-    # 这里当前只有 token ranking，所以用 RRF 形态把 raw_score 转为稳定 score。
-    # 未来如果接入 embedding，可以沿用 llm-wiki 的 token rank + vector rank 融合。
-    token_sorted = sorted(scored, key=lambda item: (-float(item["raw_score"]), str(item["path"])))
-    for index, item in enumerate(token_sorted, start=1):
-        item["score"] = 1 / (RRF_K + index)
-        item.pop("raw_score", None)
-
-    return {
-        "query": query,
-        "result_count": len(token_sorted),
-        "results": token_sorted[: max(1, min(limit, MAX_SEARCH_RESULTS))],
-        "next_steps": [
-            "Use get_wiki_page(workspace_name_or_id=..., page_path=...) to inspect a page before answering.",
-            "Use get_source_evidence(workspace_name_or_id=..., query=...) when the wiki page indicates the original extracted source is needed.",
-        ],
-    }
-```
-
-`score_wiki_page(...)` 的打分信号：
-
-```python
-def score_wiki_page(...):
-    # 从 frontmatter title 或一级标题提取标题。
-    title = extract_title(content, file_name)
-
-    # 强信号 1：文件名精确命中 query。
-    filename_exact = file_stem == query_phrase
-
-    # 强信号 2：标题包含完整 query phrase。
-    title_has_phrase = bool(query_phrase and query_phrase in title_lower)
-
-    # 强信号 3：正文出现完整 query phrase，多次出现可加分但有上限。
-    content_phrase_count = min(_count_occurrences(content_lower, query_phrase), MAX_PHRASE_OCC_COUNTED)
-
-    # 弱信号：标题和正文里命中 query tokens。
-    title_token_score = _token_match_score(title_text, tokens)
-    content_token_score = _token_match_score(content, tokens)
-
-    # 没有任何命中就不返回，减少上下文污染。
-    if not any([filename_exact, title_has_phrase, content_phrase_count, title_token_score, content_token_score]):
-        return None
-
-    score = (
-        (FILENAME_EXACT_BONUS if filename_exact else 0)
-        + (PHRASE_IN_TITLE_BONUS if title_has_phrase else 0)
-        + content_phrase_count * PHRASE_IN_CONTENT_PER_OCC
-        + title_token_score * TITLE_TOKEN_WEIGHT
-        + content_token_score * CONTENT_TOKEN_WEIGHT
-    )
-
-    return {
-        "workspace_id": workspace.id,
-        "workspace_name": workspace.name,
-        "path": page_path,
-        "title": title,
-        "type": extract_type(content),
-        "snippet": _build_snippet(content, snippet_anchor),
-        "title_match": bool(title_token_score or title_has_phrase),
-        "raw_score": score,
-        "images": _extract_image_refs(content),
-    }
-```
-
-模拟 `search_knowledge_workspace` 工具结果：
-
-```json
-{
-  "query": "壬寅日主 丑月 出生 案例",
-  "result_count": 3,
-  "results": [
-    {
-      "workspace_id": "8cb640bd-5906-4fc8-813d-712343572e27",
-      "workspace_name": "bazi-knowledge",
-      "path": "wiki/sources/壬寅日主丑月案例-1a2b3c4d.md",
-      "title": "壬寅日主丑月案例",
-      "type": "source",
-      "snippet": "...壬寅日主，生于丑月，天寒水冻，需先看调候与格局成败...",
-      "title_match": true,
-      "score": 0.01639344262295082,
-      "images": []
-    },
-    {
-      "workspace_id": "8cb640bd-5906-4fc8-813d-712343572e27",
-      "workspace_name": "bazi-knowledge",
-      "path": "wiki/concepts/壬水丑月调候.md",
-      "title": "壬水丑月调候",
-      "type": "concept",
-      "snippet": "...丑月壬水重点在寒湿、透火、土金水势与用神转换...",
-      "title_match": false,
-      "score": 0.016129032258064516,
-      "images": []
-    }
-  ],
-  "next_steps": [
-    "Use get_wiki_page(workspace_name_or_id=..., page_path=...) to inspect a page before answering.",
-    "Use get_source_evidence(workspace_name_or_id=..., query=...) when the wiki page indicates the original extracted source is needed."
-  ]
-}
-```
-
-### 10.6 读取 Wiki 页面：搜索结果不是最终证据
-
-源码锚点：
-
-- `/root/project/ai/deer-flow/backend/agents/src/knowledge/wiki_workspace.py`
-- `get_wiki_page_payload(...)`
-
-中文注释版：
-
-```python
-def get_wiki_page_payload(*, store, workspace, page_path: str) -> dict[str, Any]:
-    # page_path 支持传 "concepts/foo" 或 "wiki/concepts/foo.md"。
-    # 这里会归一化成 workspace 内的 wiki/*.md。
-    safe_path = normalize_workspace_path(page_path)
-    if not safe_path.startswith("wiki/"):
-        safe_path = normalize_workspace_path(f"wiki/{safe_path}")
-    if not safe_path.endswith(".md"):
-        safe_path = f"{safe_path}.md"
-
-    # 只读归一化后的 workspace path，避免工具绕过知识库文件边界。
-    content = store.read_text(workspace, safe_path)
-
-    return {
-        "workspace": _workspace_payload(workspace),
-        "page": {
-            "path": safe_path,
-            "title": extract_title(content, PurePosixPath(safe_path).name),
-            "type": extract_type(content),
-            "content": content,
-        },
-        "next_steps": [
-            "Cite the page path when using this content.",
-            "Use get_source_evidence if the answer needs narrower original-source excerpts.",
-        ],
-    }
-```
-
-模拟 `get_wiki_page` 结果：
-
-```json
-{
-  "workspace": {
-    "workspace_id": "8cb640bd-5906-4fc8-813d-712343572e27",
-    "name": "bazi-knowledge",
-    "owner_id": "d333fa13-7b40-40e2-8564-2fa6c34e1b78"
-  },
-  "page": {
-    "path": "wiki/concepts/壬水丑月调候.md",
-    "title": "壬水丑月调候",
-    "type": "concept",
-    "content": "---\ntitle: \"壬水丑月调候\"\ntype: \"concept\"\nsources:\n  - \"案例大全/案例001.md\"\n---\n\n# 壬水丑月调候\n\n..."
-  },
-  "next_steps": [
-    "Cite the page path when using this content.",
-    "Use get_source_evidence if the answer needs narrower original-source excerpts."
-  ]
-}
-```
-
-### 10.7 原文证据：只在需要时读 raw cache
-
-源码锚点：
-
-- `/root/project/ai/deer-flow/backend/agents/src/knowledge/wiki_workspace.py`
-- `get_source_evidence_payload(...)`
-
-中文注释版：
-
-```python
-def get_source_evidence_payload(
-    *,
-    store,
-    workspace,
-    query: str,
-    source_path_or_name: str | None = None,
-    max_snippets: int = 5,
-) -> dict[str, Any]:
-    # 只列编译阶段生成的 extracted text cache。
-    # 不直接读原始 PDF/DOCX，避免工具调用时重复抽取和返回超大文本。
-    cache_files = [
-        file
-        for file in store.list_files(workspace, "raw/sources/.cache")
-        if file.path.endswith(".txt") or file.path.endswith(".md")
-    ]
-
-    # 可按 source 文件名或 cache path 缩小范围。
-    candidate = str(source_path_or_name or "").strip().casefold()
-    if candidate:
-        cache_files = [
-            file
-            for file in cache_files
-            if candidate in file.path.casefold() or candidate == PurePosixPath(file.path).name.casefold()
-        ]
-
-    # 用同一套中文 token 规则找窄片段，最多返回受限数量。
-    tokens = tokenize_query(query) or ([query.casefold()] if query else [])
-    snippets = []
-    for file in cache_files:
-        content = store.read_text(workspace, file.path)
-        for snippet in _source_snippets(content=content, query=query, tokens=tokens):
-            snippets.append({"source_path": file.path, "text": snippet})
-            if len(snippets) >= max(1, min(max_snippets, 12)):
-                break
-
-    return {
-        "workspace": _workspace_payload(workspace),
-        "query": query,
-        "source_path_or_name": source_path_or_name,
-        "snippets": snippets,
-        "next_steps": [
-            "Use these snippets as original-source evidence, then cite the source_path and related wiki page path.",
-        ],
-    }
-```
-
-模拟结果：
-
-```json
-{
-  "workspace": {
-    "workspace_id": "8cb640bd-5906-4fc8-813d-712343572e27",
-    "name": "bazi-knowledge"
-  },
-  "query": "壬寅日主 丑月",
-  "source_path_or_name": "案例001",
-  "snippets": [
-    {
-      "source_path": "raw/sources/.cache/案例001-1a2b3c4d.txt",
-      "text": "...乾造：辛巳 辛丑 壬寅 庚戌。壬水日主生于丑月，寒湿之气重..."
-    }
-  ],
-  "next_steps": [
-    "Use these snippets as original-source evidence, then cite the source_path and related wiki page path."
-  ]
-}
-```
-
-### 10.8 知识图谱工具：给 agent 审查关系，不替代检索
-
-源码锚点：
-
-- `/root/project/ai/deer-flow/backend/agents/src/knowledge/wiki_workspace.py`
-- `build_knowledge_graph_payload(...)`
-- `_build_graph_for_workspace(...)`
-
-工具调用：
-
-```text
-get_knowledge_graph(workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27")
-```
-
-返回内容来自编译后的 wiki 页面：
-
-```text
-wiki/**/*.md
-  -> frontmatter title/type/sources
-  -> 正文 [[wikilink]]
-  -> related: [...]
-  -> nodes / edges / communities
-```
-
-agent 使用边界：
-
-- 适合问“这个知识库里有哪些主题关系”“某个概念跟哪些案例关联”。
-- 不适合直接拿 graph node 当最终答案，因为 graph 是索引视图，不是页面全文。
-- 真正回答时仍要回到 `get_wiki_page` 或 `get_source_evidence`。
-
-### 10.9 完整 agent 调用示例：壬寅日主丑月案例
+### 10.4 完整 agent 调用示例：壬寅日主丑月案例
 
 用户问：
 
@@ -1943,58 +1455,53 @@ agent 使用边界：
 壬寅日主丑月出生的案例有哪些？请找相似案例并说明共性。
 ```
 
-正确工具调用序列：
+推荐文件工具序列：
 
 ```text
-1. search_knowledge_workspace
-   query="壬寅日主 丑月 出生 案例"
-   workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27"
-   limit=10
+1. ls
+   path="/mnt/user-data/knowledge/"
 
-2. get_wiki_page
-   workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27"
-   page_path="wiki/sources/壬寅日主丑月案例-1a2b3c4d.md"
+2. grep
+   path="/mnt/user-data/knowledge/bazi-knowledge__8cb640bd-5906-4fc8-813d-712343572e27"
+   pattern="壬寅"
 
-3. get_wiki_page
-   workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27"
-   page_path="wiki/concepts/壬水丑月调候.md"
+3. grep
+   path="/mnt/user-data/knowledge/bazi-knowledge__8cb640bd-5906-4fc8-813d-712343572e27"
+   pattern="丑月"
 
-4. get_source_evidence
-   workspace_name_or_id="8cb640bd-5906-4fc8-813d-712343572e27"
-   query="壬寅日主 丑月 乾造 反馈"
-   source_path_or_name="案例001"
-   max_snippets=5
+4. read_file
+   path="/mnt/user-data/knowledge/bazi-knowledge__8cb640bd-5906-4fc8-813d-712343572e27/wiki/sources/案例大全-盲派真实案例-壬寅柱-cases-017d4d7e.md"
+   offset=<grep 命中行附近>
+   limit=80
 ```
 
-错误调用序列：
+错误边界：
 
 ```text
-1. document-level PageTree retrieval with document_name_or_id="bazi-knowledge"
-   # 错：bazi-knowledge 是 workspace name，不是 document name，而且 PageTree retrieval 已不再暴露给 agent。
+1. 把知识库名称当成文档名称传入旧文档树链路
+   # 错：当前 agent-facing 契约已经没有单文档 PageTree 检索。
 
-2. glob(path="/mnt/user-data/agents/prod/bazi-lunming", pattern="**/*.md")
-   # 错：绕过 thread binding 和知识库工具协议，还会在大知识库中超时。
+2. 读取 /root/project/ai/ai-numerology/backend/agents/examples/案例大全/...
+   # 错：这是宿主机源码路径，产品环境和沙箱不依赖它。
 
-3. read_file(path="/root/project/ai/ai-numerology/backend/agents/examples/案例大全/...")
-   # 错：agent runtime 不应依赖宿主源码路径，产品环境也没有这个路径。
+3. 遍历内部缓存目录或对象存储 key
+   # 错：这些是实现细节，不属于 agent 可见路径契约。
 ```
 
-### 10.10 OpenAgents 与 llm-wiki 当前差异
+### 10.5 OpenAgents 与 llm-wiki 当前差异
 
 已经对齐的部分：
 
 - 都把 `wiki/**/*.md` 作为默认检索真源。
-- 都有中文 token 拆分、phrase/title/content 权重。
-- 都返回 page path，再要求读取页面全文。
-- 都保留原文 cache 作为窄证据补充。
-- 都用 `sources[]` 和 wikilink 作为图谱结构基础。
+- 都保留 `raw/sources/.cache/**` 作为原文证据和预览补充。
+- 都用 `sources[]`、wikilink 和 wiki 页面结构支撑图谱展示。
+- 都让用户可以打开页面或来源预览，而不是只看到不可解释的向量 chunk。
 
 仍需继续补齐的部分：
 
-- llm-wiki `searchWiki` 支持可选 vector search；OpenAgents 当前 `search_workspaces` 主要是 token search + RRF 形态。要提升召回，应在 workspace 编译后补 page embedding，并按 token rank + vector rank 融合。
-- llm-wiki chat 会对搜索 top pages 做 graph expansion；OpenAgents agent 目前可以调用 `get_knowledge_graph`，但是否扩展取决于模型行为。更稳定的做法是在 `search_knowledge_workspace` 返回里加入轻量 related pages，或提供 `expand_wiki_pages` 工具。
-- llm-wiki chat 有 `computeContextBudget`；OpenAgents 当前工具把预算控制交给模型和工具返回长度。更稳定的做法是工具层支持 `max_page_chars` / `summary_first` / `full_page_on_request`。
-- llm-wiki 前端天然展示 Source/Wiki/Search/Graph；OpenAgents 已有 workspace/graph 工具，但管理页还需要继续把“编译后 wiki 页面”和“原文证据预览”做成主要视图。
+- llm-wiki chat 有 token search、可选 vector search、graph expansion 和 context budget；OpenAgents agent 当前主要依赖模型主动组合 `grep/read_file`，需要补可复用的检索策略模板或更强的文件工具审计。
+- llm-wiki UI 原生展示 Source/Wiki/Search/Graph；OpenAgents 管理页还需要继续把“编译后 wiki 页面”“原文证据预览”“图谱节点和引用跳转”做成主要视图。
+- 当前验证脚本可以检查阶段 Markdown 是否有路径、行号、候选边界和非压缩摘录；如果要机械证明每条摘录确实来自文件工具结果，还需要为通用 `grep/read_file` 增加 runtime file-operation audit。
 
 ## 11. 删除 source 时如何清理衍生知识
 
@@ -2159,24 +1666,20 @@ buildRetrievalGraph -> wikilink + sources overlap + type affinity
 chat-panel -> top pages + graph expansion + budget
 ```
 
-OpenAgents 当前 agent-facing 工具契约：
+OpenAgents 当前 agent-facing 契约：
 
 ```text
-search_knowledge_workspace(query, workspace_name_or_id?, limit?)
-  默认检索当前 thread 已绑定 workspace 的 wiki/**/*.md，不默认全量扫 raw。
-  workspace_name_or_id 应优先传 <knowledge_attached_workspaces> 注入的 workspace_id。
+KnowledgeContextMiddleware
+  -> 注入 /mnt/user-data/knowledge/<workspace-name>__<workspace-id> mount_path
 
-get_wiki_page(workspace_name_or_id, page_path)
-  返回生成后的 Markdown 页面全文、frontmatter 解析出的 title/type，以及 next_steps。
+ls / glob
+  -> 发现当前线程已绑定知识库中的 workspace/wiki、raw/sources/.cache、wiki/media 等文件
 
-get_source_evidence(workspace_name_or_id, query, source_path_or_name?, max_snippets?)
-  用户需要原文证据时再读 raw/sources/.cache/** 的 bounded snippets。
+grep
+  -> 在编译后的 wiki 页面或原文 cache 中定位精确命中行
 
-get_knowledge_graph(workspace_name_or_id?)
-  从 wiki links 和 sources[] 生成图谱数据。
-
-get_workspace_file_tree(workspace_name_or_id?)
-  调试或导航 workspace 文件树时使用，普通问答不应优先使用。
+read_file
+  -> 按 offset/limit 分页读取带行号正文，供模型引用和复核
 ```
 
 ### 13.5 前端页面

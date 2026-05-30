@@ -303,7 +303,11 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
             subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = []
             if todo_enabled:
                 subagent_middleware.append(TodoListMiddleware())
-            if filesystem_enabled:
+            # Subagents normally inherit the parent filesystem surface, but
+            # judge/validator agents sometimes need an explicit no-files
+            # contract so they cannot bypass a supplied evidence bundle.
+            subagent_filesystem_enabled = spec.get("filesystem_enabled", filesystem_enabled)
+            if subagent_filesystem_enabled:
                 subagent_middleware.append(FilesystemMiddleware(backend=backend))
             subagent_middleware.extend(
                 [

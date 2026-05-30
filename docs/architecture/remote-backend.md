@@ -94,6 +94,7 @@ The agent still sees the normal runtime contract:
 /mnt/user-data/tmp
 /mnt/user-data/uploads
 /mnt/user-data/outputs
+/mnt/user-data/knowledge
 /mnt/user-data/agents
 ```
 
@@ -105,6 +106,7 @@ The agent still sees the normal runtime contract:
 | `/mnt/user-data/tmp` | `<runtime-root>/tmp` |
 | `/mnt/user-data/uploads` | `<runtime-root>/uploads` |
 | `/mnt/user-data/outputs` | `<runtime-root>/outputs` |
+| `/mnt/user-data/knowledge` | server-side read-only route over attached knowledge packages |
 | `/mnt/user-data/agents` | `<runtime-root>/agents` |
 
 Default runtime root:

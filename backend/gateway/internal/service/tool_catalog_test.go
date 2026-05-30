@@ -2,7 +2,7 @@ package service
 
 import "testing"
 
-func TestListToolCatalogOmitsRemovedKnowledgeListingTool(t *testing.T) {
+func TestListToolCatalogDefaultSurfaceIsExplicit(t *testing.T) {
 	t.Setenv("OPENAGENTS_CONFIG_PATH", t.TempDir()+"/missing-config.yaml")
 
 	items, err := (&AgentService{}).ListToolCatalog()
@@ -15,15 +15,31 @@ func TestListToolCatalogOmitsRemovedKnowledgeListingTool(t *testing.T) {
 		names[item.Name] = true
 	}
 
-	if names["list_knowledge_documents"] {
-		t.Fatalf("removed tool list_knowledge_documents still exposed in catalog")
+	expected := map[string]bool{
+		"execute":                     true,
+		"glob":                        true,
+		"grep":                        true,
+		"edit_file":                   true,
+		"install_skill_from_registry": true,
+		"ls":                          true,
+		"present_files":               true,
+		"push_agent_prod":             true,
+		"push_skill_prod":             true,
+		"question":                    true,
+		"read_file":                   true,
+		"save_agent_to_store":         true,
+		"save_skill_to_store":         true,
+		"setup_agent":                 true,
+		"task":                        true,
+		"write_file":                  true,
+		"write_todos":                 true,
 	}
-	if !names["search_knowledge_workspace"] || !names["get_wiki_page"] || !names["get_source_evidence"] {
-		t.Fatalf("knowledge retrieval tools missing from catalog: %+v", names)
+	if len(names) != len(expected) {
+		t.Fatalf("default tool catalog names = %+v, want exactly %+v", names, expected)
 	}
-	for name := range names {
-		if len(name) >= len("get_document_") && name[:len("get_document_")] == "get_document_" {
-			t.Fatalf("legacy document-level knowledge tools should not be in default catalog: %+v", names)
+	for expectedName := range expected {
+		if !names[expectedName] {
+			t.Fatalf("default tool catalog missing %q: %+v", expectedName, names)
 		}
 	}
 }

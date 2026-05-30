@@ -149,3 +149,59 @@ def test_migrate_source_of_truth_layout_rejects_conflicting_legacy_duplicates(tm
 
     with pytest.raises(ValueError, match="conflicting definitions"):
         migrate_source_of_truth_layout(paths=paths)
+
+
+def test_migrate_source_of_truth_layout_removes_deprecated_guard_fields(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir)
+    agent_dir = paths.custom_agent_dir("demo-agent", "dev")
+    agent_dir.mkdir(parents=True)
+    agent_dir.joinpath("config.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "demo-agent",
+                "status": "prod",
+                "subagent_defaults": {
+                    "general_purpose_enabled": True,
+                    "task_guard": {"violation_code": "WRONG_SUBAGENT"},
+                },
+                "skill_refs": [],
+            },
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    agent_dir.joinpath("subagents.yaml").write_text(
+        yaml.dump(
+            {
+                "version": 1,
+                "subagents": {
+                    "case-researcher": {
+                        "description": "Research cases",
+                        "system_prompt": "Return concise evidence.",
+                        "task_guard": {"violation_code": "BAD_TASK"},
+                        "result_guard": {"json_object": True},
+                    }
+                },
+            },
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = migrate_source_of_truth_layout(paths=paths)
+
+    assert result.rewritten_manifests == 1
+    assert result.rewritten_subagents == 1
+    migrated_config = yaml.safe_load(agent_dir.joinpath("config.yaml").read_text(encoding="utf-8"))
+    migrated_subagents = yaml.safe_load(agent_dir.joinpath("subagents.yaml").read_text(encoding="utf-8"))
+
+    assert migrated_config["status"] == "dev"
+    assert migrated_config["subagent_defaults"] == {"general_purpose_enabled": True}
+    case_researcher = migrated_subagents["subagents"]["case-researcher"]
+    assert "task_guard" not in case_researcher
+    assert "result_guard" not in case_researcher

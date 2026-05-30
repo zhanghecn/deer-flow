@@ -1,19 +1,19 @@
 # Knowledge Base Architecture
 
-Last updated: 2026-05-15
+Last updated: 2026-05-30
 
 ## 1. Scope
 
-当前知识库实现采用 **Wiki Workspace-first** 路线：每个知识库在 Knowledge Asset Store 中拥有一个持久化工作区，编译结果以文件为真源，Agent 默认检索生成后的 `wiki/**/*.md`，必要时再读取 bounded 原文证据。
+当前知识库实现采用 **Compiled Filesystem-first** 路线：每个知识库在 Knowledge Asset Store 中拥有一个持久化资料包工作区，编译结果以文件为真源，Agent 默认通过 `/mnt/user-data/knowledge/...` 只读挂载使用现有 `glob` / `grep` / `read_file` 工具检索。
 
-PageIndex 仍然保留在 ingest/compile 阶段，用于把 PDF / Word / Markdown 归一化、切树、生成 citation/source-map，再同步成 llm_wiki 风格工作区文件；它不再是 Agent 默认问答协议。
+PageIndex 仍然保留在 ingest/compile 阶段，用于把 PDF / Word / PPT / Markdown 归一化、生成 canonical Markdown、source-map、图片/表格资产和调试索引。llm_wiki 风格 workspace 文件可以继续作为编译产物和管理页视图存在，但不再是 Agent 默认检索协议。
 
 当前已落地能力：
 
-- PDF / Word / Markdown 建库与持久化索引
+- PDF / Word / PPT / Markdown 建库与持久化索引
 - 线程内挂载知识库 + 全局共享知识库管理页
-- Wiki Workspace 文件树、wiki 页面、source evidence、知识图谱
-- Wiki 搜索 + raw source 行号证据的混合召回；精确查询可返回 `source_path`、`line_start`、`line_end` 后再用 bounded source evidence 展开
+- 编译资料包文件树、canonical/source Markdown、图片资产、知识图谱管理视图
+- Agent 通过现有 `glob` / `grep` / `read_file` 对挂载资料包做精确定位、分页阅读和行号引用
 - PageTree 树状检索 + unified evidence 展开
 - 聊天回答内知识库引用与图片，点击后直接预览并跳转对应页
 - 全局共享知识库预览、索引 JSON / canonical 原文对照审查
@@ -67,7 +67,7 @@ Python Agents Runtime
   - PageIndex compile adapter
   - canonical markdown generation
   - Wiki Workspace sync
-  - Agent workspace knowledge tools
+  - read-only /mnt/user-data/knowledge route over attached workspaces
 ```
 
 职责边界：
@@ -103,7 +103,7 @@ Python Agents Runtime
 
 - PostgreSQL 保存知识库、文档、线程绑定、构建任务、构建事件等元数据
 - Knowledge Asset Store 保存源文件、预览文件、canonical、index/debug JSON，以及 `workspace/**`
-- Wiki Workspace 是当前 Agent 检索真源；`search_knowledge_workspace` 会优先检索生成的 `wiki/**/*.md`，并对 `raw/sources/.cache/**` 做 bounded grep-like 精确召回以覆盖长文档后段内容。PostgreSQL 中的 PageTree / node text 是 compile/debug/兼容层，不是默认问答入口
+- Knowledge Asset Store 的 `workspace/**` 文件通过 runtime 只读路由挂载到 `/mnt/user-data/knowledge/{workspace-name}__{workspace-id}/...`。Agent 默认使用普通文件工具检索这些文件；PostgreSQL 中的 PageTree / node text 是 compile/debug 元数据，不是默认问答入口
 - 大型结构化索引仍可作为 JSON / JSONB 或持久化 JSON 文件保存，但原文和工作区文件不进入数据库大对象字段
 - PostgreSQL 还保存知识质量与证据元数据：
   - 文档级 `build_quality`
@@ -297,71 +297,62 @@ Gateway / frontend poll build progress and events
 
 编译边界：
 
-- PageIndex 负责把源文件归一化、切树、生成 citation/source-map、节点摘要和 bounded 原文缓存
-- llm_wiki-style compiler 在 workspace 写入阶段运行两段式生成：
-  - analysis：读取有界 source content、当前 index、purpose、schema，产出结构化分析
-  - generation：按 `---FILE: ...---` / `---END FILE---` 生成 wiki page blocks
-- OpenAgents 只接受生成到 `wiki/entities/`、`wiki/concepts/`、`wiki/comparisons/`、`wiki/synthesis/` 的 Markdown 页面
-- `wiki/index.md`、`wiki/overview.md`、`wiki/log.md` 由平台确定性重写，避免模型生成全局索引时覆盖其他 source
-- 同名实体/概念页会合并 frontmatter 的 `sources/tags/related`，并保留既有正文，避免多 source 增量编译时静默丢内容
-- source 重新编译时，source-owned 页面直接替换；共享实体/概念页只移除当前 source 的贡献，若没有剩余 source 才删除
-- 大文档不会把完整原文无限塞给模型；compiler 使用 head/tail excerpt 加节点摘要构造有界 source content
+- PageIndex 负责把源文件归一化、生成 canonical Markdown、source-map、节点摘要和 raw source cache
+- PDF / Word / PPT 等非文本资料必须先落成可 `grep/read_file` 的 Markdown；图片、表格、页面图等资产以 Markdown 引用和 package asset 文件保留
+- llm_wiki-style 文件生成可以作为后台增强和管理页图谱来源继续存在，但不再作为 agent 的默认检索入口
+- 大文档不会把完整原文一次性交给模型；agent 必须用 `grep` 命中行号，再用 `read_file(offset, limit)` 分页读取上下文
 
 ## 5. Retrieval Contract
 
-当前 Agent 侧默认知识主协议暴露 5 个 workspace 工具：
+当前 Agent 侧默认知识主协议不再暴露知识库专用检索工具。知识库资料包会作为只读文件挂载：
 
-- `search_knowledge_workspace`
-- `get_wiki_page`
-- `get_source_evidence`
-- `get_knowledge_graph`
-- `get_workspace_file_tree`
+```text
+/mnt/user-data/knowledge/{safe-workspace-name}__{workspace-id}/
+  purpose.md
+  schema.md
+  wiki/**
+  raw/sources/.cache/**
+  assets/**
+```
 
 线程挂载知识库清单不再通过 listing tool 暴露，而是由 `KnowledgeContextMiddleware`
 直接注入 XML prompt，上下文中会包含：
 
 - attached workspace `workspace_id`
 - `name`
+- `mount_path`
 - `owner_id`
 - `description`
 - `source_type`
 - `document_count`
 - `ready_document_count`
 
-推荐调用顺序：
+典型审计路径：
 
 ```text
-KnowledgeContextMiddleware injects <knowledge_attached_workspaces>
-    -> choose one ready workspace_id from the XML prompt
-        -> search_knowledge_workspace(query=...)
-            -> get_wiki_page(workspace_name_or_id=..., page_path=...)
-                -> get_source_evidence(workspace_name_or_id=..., query=...) when exact original-source text is needed
+KnowledgeContextMiddleware injects mount_path values
+    -> agent uses normal filesystem tools inside the selected mount_path
+        -> narrow candidate files and read bounded source context
 ```
 
 设计原则：
 
-- 保持 **全局工具注册稳定**，知识库约束主要由 prompt / trace 审计引导完成，不通过动态裁剪模型可见工具列表，也不通过 tool-call 拦截去硬限制通用 agent 能力
-- Agent 默认先搜编译后的 `wiki/**/*.md`，不直接扫 `raw/sources/**` 或 mounted implementation paths
-- 搜索实现参考 llm_wiki：CJK bigram、filename/title/phrase/token 权重、RRF 风格稳定排序
+- 保持 **全局工具注册稳定**，知识库复用 Deep Agents 文件工具，不新增并行的知识检索工具协议
+- Agent 默认在 `/mnt/user-data/knowledge/...` 资料包内使用 `glob` / `grep` / `read_file`；不得访问 host 路径、对象存储 key 或实现目录
+- `grep` 返回精确行号，`read_file` 负责分页展开，这比黑盒语义搜索更容易审计和纠错
 - 图谱实现参考 llm_wiki：`[[wikilink]]` 成边、隐藏 `type=query`、权重由 direct link / source overlap / common neighbors / type affinity 组成
-- `get_wiki_page` 返回完整 wiki page，作为回答前的主要结构化上下文
-- `get_source_evidence` 只返回 bounded 原文片段，避免把大文件或 raw cache 直接塞给模型
-- `get_workspace_file_tree` 主要用于导航和调试，不是问答首选工具
-- 不允许 Agent 为了回答 attached knowledge 问题去 `grep/glob/read_file/ls/find/execute` 爬实现路径；只有用户明确要求 debug storage/indexing 时才允许
+- 图谱和 wiki 页面是管理 UI / 调试视图，不是 agent 默认问答工具
+- 不允许 Agent 为了回答 attached knowledge 问题使用 `execute` 去爬实现路径；正常检索只用文件工具
 - 旧的 document-level PageTree 工具已经从 agent-facing tool registry 删除，不再作为 opt-in 兼容入口保留
-- PageTree 派生数据只允许作为 ingest/debug 元数据存在；面向 agent 的检索必须走 Wiki Workspace 工具
+- PageTree 派生数据只允许作为 ingest/debug 元数据存在；面向 agent 的检索必须走只读资料包挂载
 
 ### Agent Runtime Guidance
 
-- 知识库主链路保持为 prompt-first guidance：
-  - system prompt
-  - `KnowledgeContextMiddleware` 的上下文注入
-- `KnowledgeContextMiddleware` 会把线程挂载 workspace 直接注入为 XML prompt，避免模型为“先看看有哪些知识库”再额外调用一次工具
-- 注入的 KB protocol 明确要求“仅在当前 turn 需要 attached knowledge retrieval 时激活”；thread attachment 本身就是精确范围，显式引用只是可选增强信号而不是必需前提
+- `KnowledgeContextMiddleware` 只注入线程挂载 workspace 的元数据和 `mount_path`，不再注入长工具流程说明
+- prompt 只表达：attached knowledge 是只读文件、位置在 `mount_path`、当前 turn 需要知识库时只使用这些路径
 - middleware 不再对 `grep` / `read_file` / `ls` / `execute` 等通用工具做 tool-call 拦截
 - middleware 也不再在答案已开始可见输出后做隐藏重试，因为这会在流式 UI 中追加第二段割裂答案
-- 主链路目标是引导模型优先走 `<knowledge_attached_workspaces>` -> `search_knowledge_workspace` -> `get_wiki_page` -> `get_source_evidence`
-- 是否真正遵循该链路，主要通过 trace 审计与前端真实流测试验证，而不是靠 middleware 在工具层强行兜底
+- 是否真正读取挂载资料包，主要通过 trace 审计与前端真实流测试验证，而不是靠 middleware 在工具层强行兜底
 
 ## 6. Citation and Preview Contract
 
@@ -450,12 +441,12 @@ kb://asset?artifact_path=...&asset_path=...&document_id=...&document_name=...&lo
 - 共享知识库页可打开并浏览 owner folder 结构
 - 共享页可打开 source documents、Wiki Workspace 文件树、知识图谱
 - 构建进度、事件、canonical/debug 审查页可打开
-- 模型在知识库问答里会先走 `search_knowledge_workspace` / `get_wiki_page`，必要时再走 `get_source_evidence`
-- 模型不会为默认问答去爬 `/mnt/user-data/...`、KAS 实现路径或 `/large_tool_results/...`
+- 模型在知识库问答里会先走 `/mnt/user-data/knowledge/...` 下的 `glob` / `grep` / `read_file`
+- 模型不会为默认问答去爬 KAS 实现路径、host 路径或 `/large_tool_results/...`
 
 ## 11. Known Follow-ups
 
 - 继续优化 PageIndex 大文档建树速度与 token 开销
 - 更系统地抽出 indexing worker / job runner
 - 为管理页增加更细的构建中任务视图和筛选
-- 后续如果需要 dense / hybrid retrieval，在 Wiki Workspace contract 下增加第二种 engine，而不是回退到旧 PageTree 默认链路
+- 后续如果需要 dense / hybrid retrieval，应作为资料包内的可选索引文件或显式工具重新设计，而不是回退到旧 PageTree 默认链路

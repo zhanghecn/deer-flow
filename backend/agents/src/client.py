@@ -53,6 +53,7 @@ from src.config.mcp_profile_migration import migrate_legacy_mcp_profile_layout
 from src.config.paths import get_paths
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
+from src.config.source_of_truth_migration import ensure_source_of_truth_layout
 from src.mcp.library import load_mcp_profile, resolve_mcp_profile_file, write_mcp_profile
 from src.models import create_chat_model
 from src.query_engine import CanonicalQueryEngine, CanonicalRunEvent
@@ -139,6 +140,9 @@ class OpenAgentsClient:
         if config_path is not None:
             reload_app_config(config_path)
         self._app_config = get_app_config()
+        # Startup owns hard-cut archive migrations so strict runtime loaders can
+        # reject any remaining invalid manifests without preserving fallbacks.
+        ensure_source_of_truth_layout(paths=get_paths())
         migrate_legacy_mcp_profile_layout(paths=get_paths())
 
         self._checkpointer = checkpointer

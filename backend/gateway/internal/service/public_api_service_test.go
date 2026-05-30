@@ -1511,6 +1511,34 @@ func TestExtractAssistantResultFromStateCombinesEarlierReasoningWithFinalText(t 
 	}
 }
 
+func TestExtractAssistantResultFromStateReturnsArtifactsWithMissingTextError(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{
+		"values": {
+			"messages": [
+				{
+					"type": "ai",
+					"content": [{"type": "tool_use", "name": "present_files"}]
+				}
+			],
+			"artifacts": ["/mnt/user-data/outputs/report.html"]
+		},
+		"tasks": []
+	}`)
+
+	text, reasoning, artifacts, err := extractAssistantResultFromState(payload)
+	if !errors.Is(err, errAssistantResultMissing) {
+		t.Fatalf("err = %v, want errAssistantResultMissing", err)
+	}
+	if text != "" || reasoning != "" {
+		t.Fatalf("expected no assistant text/reasoning, got text=%q reasoning=%q", text, reasoning)
+	}
+	if len(artifacts) != 1 || artifacts[0] != "/mnt/user-data/outputs/report.html" {
+		t.Fatalf("unexpected artifacts %#v", artifacts)
+	}
+}
+
 func TestNormalizeStructuredOutputTextAcceptsValidJSONInsideMarkdownFence(t *testing.T) {
 	t.Parallel()
 

@@ -327,16 +327,16 @@ export const zhCN: Translations = {
     uploadButton: "上传知识库",
     newTitle: "新建知识库",
     newDescription:
-      "上传 PDF、Word 或 Markdown 文件，并为当前线程构建可持久化的 Wiki 工作区。",
+      "上传 PDF、Word、PPT 或 Markdown 文件，并为当前线程构建可持久化的资料文件夹。",
     newDescriptionGlobal:
-      "上传 PDF、Word 或 Markdown 文件，并为共享知识库构建可持久化的 Wiki 工作区。",
+      "上传 PDF、Word、PPT 或 Markdown 文件，并为共享知识库构建可持久化的资料文件夹。",
     modelLabel: "索引模型",
     modelPlaceholder: "选择一个模型",
     namePlaceholder: "知识库名称",
     descriptionPlaceholder: "给 agent 的可选描述",
     chooseFilesLabel: "选择文件",
     chooseFolderLabel: "选择文件夹",
-    supportedFormatsHint: "支持的格式：PDF、DOC、DOCX、MD、Markdown。",
+    supportedFormatsHint: "支持的格式：PDF、DOC、DOCX、PPT、PPTX、MD、Markdown。",
     unsupportedFilesSelected: (count: number) =>
       `${count} 个已选文件不支持知识库索引。`,
     selectedFileCount: (count: number) => `${count} 个文件待上传`,
@@ -348,10 +348,10 @@ export const zhCN: Translations = {
       "上传后，可在知识库列表中打开对应条目，查看索引进度和解析结果。",
     managerTitle: "知识库管理",
     managerDescription:
-      "按用户浏览共享知识库，查看构建进度，并审查生成后的 Wiki 工作区。",
+      "按用户浏览共享知识库，查看构建进度，并审查编译后的资料文件。",
     managerTitleGlobal: "共享知识库",
     managerDescriptionGlobal:
-      "按用户文件夹浏览共享知识库，查看索引进度，并审查 Wiki 工作区、知识图谱和原文。",
+      "按用户文件夹浏览共享知识库，查看索引进度，并审查编译文件、知识图谱和原文。",
     libraryTitle: "共享知识库",
     libraryDescription:
       "知识库按所属用户分组。将知识库挂载到当前线程后，agent 工具才能直接检索它。",

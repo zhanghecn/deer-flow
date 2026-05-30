@@ -59,6 +59,70 @@ subagents:
     assert loaded.custom_subagents[0]["tools"][0].name == "web_search"
 
 
+def test_explicit_subagent_model_uses_openagents_model_factory(tmp_path: Path, monkeypatch):
+    cfg = tmp_path / "subagents.yaml"
+    cfg.write_text(
+        """
+version: 1
+subagents:
+  reviewer:
+    description: review changes
+    system_prompt: do review
+    model: deepseek-v4-flash
+""",
+        encoding="utf-8",
+    )
+    resolved_model = object()
+    calls: list[dict[str, object]] = []
+
+    def _fake_create_chat_model(**kwargs):
+        calls.append(kwargs)
+        return resolved_model
+
+    monkeypatch.setattr(subagents_loader, "_resolve_subagents_path", lambda *_args, **_kwargs: cfg)
+    monkeypatch.setattr(subagents_loader, "create_chat_model", _fake_create_chat_model)
+
+    loaded = subagents_loader.load_subagent_specs(
+        [_dummy_web_search],
+        agent_config=AgentConfig(name="demo", status="dev"),
+        agent_status="dev",
+        model_name="demo-model",
+        model_supports_vision=False,
+    )
+
+    assert loaded.custom_subagents[0]["model"] is resolved_model
+    assert calls == [{"name": "deepseek-v4-flash", "thinking_enabled": False}]
+
+
+def test_explicit_subagent_filesystem_switch_is_preserved(tmp_path: Path, monkeypatch):
+    cfg = tmp_path / "subagents.yaml"
+    cfg.write_text(
+        """
+version: 1
+subagents:
+  validator:
+    description: validate supplied evidence only
+    system_prompt: do validation
+    tool_names: []
+    filesystem_enabled: false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subagents_loader, "_resolve_subagents_path", lambda *_args, **_kwargs: cfg)
+
+    loaded = subagents_loader.load_subagent_specs(
+        [_dummy_web_search],
+        agent_config=AgentConfig(name="demo", status="dev"),
+        agent_status="dev",
+        model_name="demo-model",
+        model_supports_vision=False,
+    )
+
+    validator = loaded.custom_subagents[0]
+    assert validator["tools"] == []
+    assert validator["filesystem_enabled"] is False
+
+
 def test_unknown_tool_reference_raises(tmp_path: Path, monkeypatch):
     cfg = tmp_path / "subagents.yaml"
     cfg.write_text(

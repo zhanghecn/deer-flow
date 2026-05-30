@@ -34,7 +34,10 @@ class KnowledgeAssetStore:
         else:
             raise ValueError(f"Unsupported KNOWLEDGE_OBJECT_STORE backend: {backend}")
 
-        self._cache_dir = self._paths.base_dir / ".knowledge-cache"
+        # Object-store reads need a local materialization directory for parsers
+        # that require file paths. Keep this cache internal and outside the
+        # agent-visible `/mnt/user-data/knowledge` route.
+        self._cache_dir = self._paths.base_dir / ".knowledge-object-cache"
         self._client = None
         self._bucket: str | None = None
         self._bucket_checked = False

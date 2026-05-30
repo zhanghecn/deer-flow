@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
+from deepagents.backends import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
 
 from src.config.paths import Paths
 
+from .knowledge_filesystem import KNOWLEDGE_ROUTE_PREFIX, ThreadKnowledgeFilesystemBackend
 from .local import build_local_workspace_backend, resolve_skills_mount
 from .operation_logging import wrap_runtime_backend_with_logging
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
@@ -57,9 +59,49 @@ def build_runtime_workspace_backend(
             skills_mount=skills_mount,
         )
 
-    scoped_backend = scope_composite_root_search(backend)
+    backend_with_knowledge = _attach_thread_knowledge_route(
+        backend,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
+    scoped_backend = scope_composite_root_search(backend_with_knowledge)
     return wrap_runtime_backend_with_logging(
         scoped_backend,
         backend_kind=backend_kind,
         thread_id=thread_id,
+    )
+
+
+def _attach_thread_knowledge_route(
+    backend: BackendProtocol,
+    *,
+    thread_id: str,
+    user_id: str | None,
+) -> BackendProtocol:
+    """Mount attached knowledge as read-only files under `/mnt/user-data`.
+
+    The route is created for every real thread but resolves attached workspaces
+    lazily per operation. That keeps backend construction cheap and preserves
+    the object-store boundary: agents see files, while storage refs and MinIO
+    keys never leak into prompts or tool arguments.
+    """
+
+    if not user_id:
+        return backend
+
+    knowledge_backend = ThreadKnowledgeFilesystemBackend(
+        user_id=user_id,
+        thread_id=thread_id,
+    )
+    if isinstance(backend, CompositeBackend):
+        return CompositeBackend(
+            default=backend.default,
+            routes={
+                **backend.routes,
+                KNOWLEDGE_ROUTE_PREFIX: knowledge_backend,
+            },
+        )
+    return CompositeBackend(
+        default=backend,
+        routes={KNOWLEDGE_ROUTE_PREFIX: knowledge_backend},
     )

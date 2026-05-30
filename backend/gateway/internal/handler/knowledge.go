@@ -2129,6 +2129,8 @@ func knowledgeFileKind(fileName string) string {
 		return "markdown"
 	case ".doc", ".docx":
 		return "docx"
+	case ".ppt", ".pptx":
+		return "pptx"
 	case ".pdf":
 		return "pdf"
 	default:

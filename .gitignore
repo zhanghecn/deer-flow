@@ -67,7 +67,7 @@ test-results
 output
 host-logs
 .openagents/.locks/
-.openagents/.knowledge-cache/
+.openagents/.knowledge-object-cache/
 .openagents/knowledge-debug/
 .openagents/runtime/
 .openagents/dev-cache/

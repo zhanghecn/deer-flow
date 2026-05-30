@@ -10,7 +10,11 @@ import {
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentWelcome } from "@/components/workspace/agent-welcome";
 import { ChatBox } from "@/components/workspace/chats/chat-box";
-import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
+import {
+  shouldConnectThreadStream,
+  shouldHonorPendingRunParam,
+  shouldShowCenteredComposer,
+} from "@/components/workspace/chats/layout-state";
 import { useDockPadding } from "@/components/workspace/chats/use-dock-padding";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
@@ -30,7 +34,10 @@ import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useThreadPublicAPIExecutionStatus } from "@/core/public-api/hooks";
 import { useLocalSettings } from "@/core/settings";
-import { useThreadStream } from "@/core/threads/hooks";
+import {
+  hasLocalActiveRunOwnership,
+  useThreadStream,
+} from "@/core/threads/hooks";
 import { useThreadRuntime } from "@/core/threads/query-hooks";
 import {
   buildCurrentPath,
@@ -58,20 +65,29 @@ export default function AgentChatPage() {
     [models, settings.context.model_name],
   );
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
-  const [isPendingRun, setIsPendingRun] = useState(routeHasPendingRun);
-
-  useEffect(() => {
-    setIsPendingRun(routeHasPendingRun);
-  }, [routeHasPendingRun]);
-
   const { agent_name } = useParams();
   const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams, agent_name),
     [agent_name, searchParams],
   );
   const { threadId, setThreadId, isNewThread, isMock } = useThreadChat();
-  const { data: threadRuntime, isLoading: threadRuntimeLoading } =
-    useThreadRuntime(isMock || isNewThread || isPendingRun ? null : threadId);
+  const routePendingRunIsOwned = shouldHonorPendingRunParam({
+    routeHasPendingRun,
+    hasLocalActiveRun: hasLocalActiveRunOwnership(threadId),
+  });
+  const [isPendingRun, setIsPendingRun] = useState(routePendingRunIsOwned);
+
+  useEffect(() => {
+    setIsPendingRun(routePendingRunIsOwned);
+  }, [routePendingRunIsOwned]);
+
+  const {
+    data: threadRuntime,
+    error: threadRuntimeError,
+    isLoading: threadRuntimeLoading,
+  } = useThreadRuntime(isMock || isNewThread || isPendingRun ? null : threadId);
+  const threadUnavailable =
+    !isNewThread && !!threadRuntimeError && !threadRuntime;
   const boundThreadRuntime = useMemo(
     () => resolveThreadRuntimeBinding(threadRuntime),
     [threadRuntime],
@@ -251,9 +267,16 @@ export default function AgentChatPage() {
     threadRuntime,
   ]);
 
+  const canConnectThreadStream = shouldConnectThreadStream({
+    isMock,
+    isNewThread,
+    isPendingRun,
+    hasThreadRuntime: !!threadRuntime,
+    threadUnavailable,
+  });
   const [thread, sendMessage, resumeInterrupt, , executionStatus] = useThreadStream(
     {
-      threadId,
+      threadId: canConnectThreadStream ? threadId : null,
       context: runtimeContext,
       skipInitialHistory: isNewThread || isPendingRun,
       onStart: (createdThreadId) => {
@@ -290,7 +313,8 @@ export default function AgentChatPage() {
   );
   const visibleExecutionStatus = useThreadPublicAPIExecutionStatus({
     threadId,
-    enabled: !isMock && !isNewThread && !isPendingRun,
+    enabled:
+      canConnectThreadStream && !isMock && !isNewThread && !isPendingRun,
     liveExecutionStatus: executionStatus,
     threadLoading: thread.isLoading,
   });
@@ -395,6 +419,14 @@ export default function AgentChatPage() {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
         Restoring conversation...
+      </div>
+    );
+  }
+
+  if (threadUnavailable) {
+    return (
+      <div className="text-muted-foreground flex h-full items-center justify-center px-6 text-center text-sm">
+        Conversation not found or no active run exists for this link.
       </div>
     );
   }

@@ -345,9 +345,9 @@ export const enUS: Translations = {
     uploadButton: "Upload knowledge",
     newTitle: "New Knowledge Base",
     newDescription:
-      "Upload PDF, Word, or Markdown files and build a persistent Wiki Workspace for this thread.",
+      "Upload PDF, Word, PowerPoint, or Markdown files and build a persistent knowledge folder for this thread.",
     newDescriptionGlobal:
-      "Upload PDF, Word, or Markdown files and build a shared persistent Wiki Workspace for the library.",
+      "Upload PDF, Word, PowerPoint, or Markdown files and build a shared persistent knowledge folder for agents.",
     modelLabel: "Index model",
     modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
@@ -355,7 +355,7 @@ export const enUS: Translations = {
     chooseFilesLabel: "Choose files",
     chooseFolderLabel: "Choose folder",
     supportedFormatsHint:
-      "Supported formats: PDF, DOC, DOCX, MD, and Markdown.",
+      "Supported formats: PDF, DOC, DOCX, PPT, PPTX, MD, and Markdown.",
     unsupportedFilesSelected: (count: number) =>
       `${count} selected file${count === 1 ? " is" : "s are"} not supported for knowledge indexing.`,
     selectedFileCount: (count: number) =>
@@ -369,10 +369,10 @@ export const enUS: Translations = {
       "After upload, open the knowledge library entry to monitor indexing progress and inspect the parsed result.",
     managerTitle: "Knowledge Library",
     managerDescription:
-      "Browse shared knowledge by owner, inspect build progress, and review the generated Wiki Workspace.",
+      "Browse shared knowledge by owner, inspect build progress, and review compiled workspace files.",
     managerTitleGlobal: "Shared Knowledge Library",
     managerDescriptionGlobal:
-      "Browse owner folders, inspect indexing progress, and review Wiki Workspace files, graph, and source text.",
+      "Browse owner folders, inspect indexing progress, and review compiled files, graph, and source text.",
     libraryTitle: "Shared Library",
     libraryDescription:
       "Knowledge bases are grouped by owner. Attach a base to the current thread to make it available to the agent tools.",

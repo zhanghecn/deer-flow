@@ -47,6 +47,7 @@ def main() -> None:
         f"copied_skills={result.copied_skills}, "
         f"copied_agents={result.copied_agents}, "
         f"rewritten_manifests={result.rewritten_manifests}, "
+        f"rewritten_subagents={result.rewritten_subagents}, "
         f"skipped_conflicts={len(result.skipped_conflicts)}"
     )
 

@@ -22,6 +22,7 @@ class SourceOfTruthMigrationResult:
     copied_skills: int = 0
     copied_agents: int = 0
     rewritten_manifests: int = 0
+    rewritten_subagents: int = 0
     created_dirs: tuple[Path, ...] = ()
     skipped_conflicts: tuple[str, ...] = ()
 
@@ -31,6 +32,7 @@ class SourceOfTruthMigrationResult:
                 self.copied_skills,
                 self.copied_agents,
                 self.rewritten_manifests,
+                self.rewritten_subagents,
                 len(self.created_dirs),
             )
         )
@@ -131,12 +133,36 @@ def _rewrite_agent_manifest(agent_dir: Path) -> bool:
     if not isinstance(loaded, dict):
         raise ValueError(f"Agent config must be a mapping: {config_path}")
 
+    changed = False
+
+    status_from_path = agent_dir.parent.name
+    if status_from_path in {"dev", "prod"} and loaded.get("status") != status_from_path:
+        # Archive status is owned by the directory selected by the caller.
+        # Rewriting stale embedded values prevents dev/prod from diverging
+        # between Gateway, Python runtime, and thread-local materialization.
+        loaded["status"] = status_from_path
+        changed = True
+
+    raw_subagent_defaults = loaded.get("subagent_defaults")
+    if isinstance(raw_subagent_defaults, dict) and "task_guard" in raw_subagent_defaults:
+        # `task_guard` was an experimental prompt-side guard that is not part of
+        # the canonical AgentSubagentDefaults schema. Delete it during migration
+        # instead of silently accepting it at runtime.
+        raw_subagent_defaults = dict(raw_subagent_defaults)
+        raw_subagent_defaults.pop("task_guard", None)
+        loaded["subagent_defaults"] = raw_subagent_defaults
+        changed = True
+
     raw_skill_refs = loaded.get("skill_refs")
     if not isinstance(raw_skill_refs, list):
-        return False
+        if changed:
+            config_path.write_text(
+                yaml.dump(loaded, default_flow_style=False, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+        return changed
 
     rewritten_refs: list[dict[str, str]] = []
-    changed = False
     for raw_ref in raw_skill_refs:
         rewritten = _rewrite_skill_ref(raw_ref)
         if rewritten is None:
@@ -150,6 +176,42 @@ def _rewrite_agent_manifest(agent_dir: Path) -> bool:
 
     loaded["skill_refs"] = rewritten_refs
     config_path.write_text(
+        yaml.dump(loaded, default_flow_style=False, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return True
+
+
+def _rewrite_subagents_manifest(agent_dir: Path) -> bool:
+    subagents_path = agent_dir / "subagents.yaml"
+    if not subagents_path.exists():
+        return False
+
+    loaded = yaml.safe_load(subagents_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Subagents config must be a mapping: {subagents_path}")
+
+    raw_subagents = loaded.get("subagents") if "subagents" in loaded else loaded
+    if not isinstance(raw_subagents, dict):
+        return False
+
+    changed = False
+    for raw_name, raw_subagent in list(raw_subagents.items()):
+        if not isinstance(raw_name, str) or not isinstance(raw_subagent, dict):
+            continue
+        for deprecated_key in ("task_guard", "result_guard"):
+            if deprecated_key not in raw_subagent:
+                continue
+            # Guard fields belong in the copied skill/prompt contract, not in
+            # the structured subagent schema. Removing them makes stale archives
+            # satisfy the same strict Pydantic model used by runtime loading.
+            raw_subagent.pop(deprecated_key, None)
+            changed = True
+
+    if not changed:
+        return False
+
+    subagents_path.write_text(
         yaml.dump(loaded, default_flow_style=False, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
@@ -182,6 +244,7 @@ def migrate_source_of_truth_layout(
     copied_skills = 0
     copied_agents = 0
     rewritten_manifests = 0
+    rewritten_subagents = 0
     skipped_conflicts: list[str] = []
 
     legacy_skills_by_relative_path: dict[PurePosixPath, list[Path]] = {}
@@ -220,15 +283,19 @@ def migrate_source_of_truth_layout(
         if not agents_root.exists():
             continue
         for config_path in sorted(agents_root.glob("*/*/config.yaml")):
-            if _rewrite_agent_manifest(config_path.parent):
+            agent_dir = config_path.parent
+            if _rewrite_agent_manifest(agent_dir):
                 rewritten_manifests += 1
+            if _rewrite_subagents_manifest(agent_dir):
+                rewritten_subagents += 1
 
-    if created_dirs or copied_skills or copied_agents or rewritten_manifests or skipped_conflicts:
+    if created_dirs or copied_skills or copied_agents or rewritten_manifests or rewritten_subagents or skipped_conflicts:
         log.info(
-            "Source-of-truth migration finished: copied_skills=%s copied_agents=%s rewritten_manifests=%s skipped_conflicts=%s",
+            "Source-of-truth migration finished: copied_skills=%s copied_agents=%s rewritten_manifests=%s rewritten_subagents=%s skipped_conflicts=%s",
             copied_skills,
             copied_agents,
             rewritten_manifests,
+            rewritten_subagents,
             len(skipped_conflicts),
         )
 
@@ -236,6 +303,7 @@ def migrate_source_of_truth_layout(
         copied_skills=copied_skills,
         copied_agents=copied_agents,
         rewritten_manifests=rewritten_manifests,
+        rewritten_subagents=rewritten_subagents,
         created_dirs=tuple(created_dirs),
         skipped_conflicts=tuple(skipped_conflicts),
     )

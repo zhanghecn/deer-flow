@@ -1751,6 +1751,43 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("surfaces non-missing state hydration failures", async () => {
+    const onError = vi.fn();
+    apiClient.threads.getState.mockRejectedValueOnce(
+      new Error('HTTP 400: {"detail":"invalid agent config"}'),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-bad-config",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onError,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(apiClient.threads.getState).toHaveBeenCalledWith(
+        "thread-bad-config",
+        undefined,
+        { subgraphs: true },
+      );
+    });
+    await waitFor(() => {
+      expect(result.current[4]).toMatchObject({
+        event: "failed",
+        error: "400 invalid agent config",
+      });
+    });
+    expect(onError).toHaveBeenCalledWith("400 invalid agent config");
+  });
+
   it("does not poll deferred-history state while a live stream is still active", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     streamState = makeThreadState({

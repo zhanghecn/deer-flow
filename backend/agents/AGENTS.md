@@ -90,18 +90,18 @@ Critical agent protocol rules for future work:
 - `setup_agent` must use an explicit `agent_name` tool argument for `lead_agent`. Only a non-`lead_agent` dev runtime may omit `agent_name` to update itself.
 - Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.
 - Do not re-register `file:read`, `file:write`, or `bash` in app config. File access and shell execution come from deepagents `FilesystemMiddleware` only.
-- Knowledge-base retrieval keeps the global tool registry stable. Do not solve KB behavior by dynamically removing unrelated tools from the model-visible list.
+- Knowledge-base retrieval keeps the global tool registry stable and does not expose dedicated semantic KB tools. Do not solve KB behavior by dynamically removing unrelated tools from the model-visible list.
 - Knowledge-base file assets now go through a dedicated Knowledge Asset Store. Treat KB `storage_ref` values as opaque refs; they may be local relative paths or `s3://...` object refs.
 - `KNOWLEDGE_OBJECT_STORE` must be explicitly configured. Do not reintroduce an implicit filesystem default when the env is missing.
 - Production/shared KB environments must use `minio`; explicit `filesystem` is only for local development/debugging.
 - KB filesystem refs still resolve under `.openagents/knowledge/users/...`, and MinIO/S3 object keys normalize to `users/...` instead of `knowledge/users/...`.
 - If filesystem-backed KB refs are being retired in an environment, migrate the stored `storage_ref` rows and document packages first, then reject remaining stale local refs explicitly.
 - Knowledge Asset Store is application-domain storage, not a runtime backend. Do not mix it with `BackendProtocol`, `SandboxBackendProtocol`, or `SandboxProvider`.
-- The primary agent-facing KB protocol is middleware-injected `<knowledge_attached_workspaces>` -> `search_knowledge_workspace` -> `get_wiki_page` -> `get_source_evidence` when narrower original-source snippets are needed.
-- `get_workspace_file_tree` and `get_knowledge_graph` are navigation / audit helpers. They are not the default first step for answering knowledge questions.
+- The primary agent-facing KB prompt is only middleware-injected workspace metadata with `mount_path` values. Keep it concise; do not add long tool recipes to the runtime prompt.
+- Knowledge workspace tree and graph APIs are management / audit surfaces. They are not the default first step for answering knowledge questions.
 - Legacy document-level PageTree tools have been removed from the agent-facing tool registry. Do not reintroduce them as opt-in compatibility tools.
-- Wiki Workspace files under Knowledge Asset Store are the current agent retrieval source of truth. PageTree-derived metadata may remain as ingest/debug data, but it is not an agent answer protocol.
-- KB retrieval stays on the same rule everywhere: attached workspace metadata first, generated wiki search/page inspection next, bounded source evidence only when exact original text is needed. Do not reintroduce direct full-text or PageTree retrieval as the default first step.
+- Compiled workspace files under Knowledge Asset Store are mounted read-only at `/mnt/user-data/knowledge/...` and are the current agent retrieval source of truth. PageTree-derived metadata may remain as ingest/debug data, but it is not an agent answer protocol.
+- KB retrieval stays on the same rule everywhere: attached workspace metadata first, then normal filesystem reads inside the mounted package. Do not reintroduce direct PageTree retrieval or semantic KB tools as the default first step.
 - KB knowledge guidance is prompt-first. Do not reintroduce hidden post-answer retries once visible streaming has started.
 - Keep the global tool registry stable for knowledge turns. Do not reintroduce tool-call blocking heuristics for generic tools; prefer prompt guidance plus trace-based verification.
 - Knowledge citations and visual evidence share the same contract: `kb://citation` targets source previews and `kb://asset` targets inline image assets plus the same preview location.

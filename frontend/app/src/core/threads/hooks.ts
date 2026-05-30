@@ -188,7 +188,7 @@ function getActiveRunMetadataStorageKey(threadId: string) {
   return `${ACTIVE_RUN_METADATA_STORAGE_PREFIX}${threadId}`;
 }
 
-function hasLocalActiveRunOwnership(threadId?: string | null): boolean {
+export function hasLocalActiveRunOwnership(threadId?: string | null): boolean {
   if (typeof window === "undefined" || !threadId) {
     return false;
   }
@@ -876,6 +876,14 @@ function isTransientConnectionReplay(error: unknown): boolean {
 function isMissingRunReplay(error: unknown): boolean {
   const normalized = normalizeThreadError(error).toLowerCase();
   return normalized.includes("run not found");
+}
+
+function isMissingThreadStateHydration(error: unknown): boolean {
+  const normalized = normalizeThreadError(error).toLowerCase();
+  return (
+    normalized.includes("thread not found") ||
+    (normalized.includes("404") && normalized.includes("not found"))
+  );
 }
 
 function shouldSuppressOwnedMissingRunReplay(
@@ -1754,8 +1762,14 @@ export function useThreadStream({
             });
           }
         })
-        .catch(() => {
-          // Fresh threads often have no persisted state yet; ignore that case.
+        .catch((error: unknown) => {
+          if (isMissingThreadStateHydration(error)) {
+            // Fresh threads often have no persisted state yet; only that
+            // missing-state case is silent. Schema/config/runtime errors must
+            // render in the chat instead of leaving an empty recovered thread.
+            return;
+          }
+          notifyThreadError(error);
         })
         .finally(() => {
           if (!cancelled) {
@@ -1872,8 +1886,11 @@ export function useThreadStream({
             finalizeRecoveredRun(state.values, threadId);
           }
         })
-        .catch(() => {
-          // Ignore transient recovery fetch failures; the live stream may still win.
+        .catch((error: unknown) => {
+          if (isMissingThreadStateHydration(error)) {
+            return;
+          }
+          notifyThreadError(error);
         });
     };
 
@@ -1899,6 +1916,7 @@ export function useThreadStream({
     isThreadReady,
     isThreadRegistrationReady,
     isWindowActive,
+    notifyThreadError,
     thread,
     thread.isLoading,
     threadId,

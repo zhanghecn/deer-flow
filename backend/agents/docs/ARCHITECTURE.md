@@ -75,6 +75,7 @@ Every backend must preserve the same agent-visible paths:
 - `/mnt/user-data/workspace`
 - `/mnt/user-data/uploads`
 - `/mnt/user-data/outputs`
+- `/mnt/user-data/knowledge`
 - `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 - `/mnt/user-data/agents/{status}/{name}/skills/...`
 
@@ -171,6 +172,7 @@ openagents-cli worker on user machine
     +-- map /mnt/user-data/uploads   -> local runtime uploads
     +-- map /mnt/user-data/outputs   -> local runtime outputs
     +-- map /mnt/user-data/agents    -> local runtime agent copy
+    +-- route /mnt/user-data/knowledge -> server-side read-only KB packages
     |
     v
 response submitted back to relay

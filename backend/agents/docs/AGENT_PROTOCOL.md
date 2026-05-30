@@ -87,6 +87,7 @@ use them:
 /mnt/user-data/workspace
 /mnt/user-data/uploads
 /mnt/user-data/outputs
+/mnt/user-data/knowledge
 /mnt/user-data/agents/{status}/{name}/AGENTS.md
 /mnt/user-data/agents/{status}/{name}/skills/...
 ```
@@ -173,6 +174,7 @@ These are the only execution paths the agent should reason about:
 - `/mnt/user-data/workspace/...`
 - `/mnt/user-data/uploads/...`
 - `/mnt/user-data/outputs/...`
+- `/mnt/user-data/knowledge/...`
 - `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 - `/mnt/user-data/agents/{status}/{name}/skills/...`
 

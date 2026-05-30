@@ -138,6 +138,14 @@ func TestCleanKnowledgeUploadRelativePathPreservesFolderContext(t *testing.T) {
 	}
 }
 
+func TestKnowledgeFileKindSupportsPowerPoint(t *testing.T) {
+	for _, filename := range []string{"deck.ppt", "deck.pptx"} {
+		if got := knowledgeFileKind(filename); got != "pptx" {
+			t.Fatalf("knowledgeFileKind(%q) = %q, want pptx", filename, got)
+		}
+	}
+}
+
 func TestCopyMarkdownReferencedAssets(t *testing.T) {
 	t.Run("copies relative markdown image assets into the knowledge package", func(t *testing.T) {
 		sourceDir := filepath.Join(t.TempDir(), "uploads")

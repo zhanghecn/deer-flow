@@ -481,8 +481,8 @@ def search_workspaces(
         "result_count": len(token_sorted),
         "results": token_sorted[: max(1, min(limit, MAX_SEARCH_RESULTS))],
         "next_steps": [
-            "Use get_wiki_page(workspace_name_or_id=..., page_path=...) to inspect a page before answering.",
-            "Use get_source_evidence(workspace_name_or_id=..., query=...) when the wiki page indicates the original extracted source is needed.",
+            "Use returned workspace-relative paths and line_start values as file navigation hints.",
+            "Agent-facing retrieval should read the mounted workspace files directly instead of calling legacy knowledge tools.",
         ],
     }
 
@@ -505,7 +505,7 @@ def build_workspace_file_tree(
     }
 
 
-def get_wiki_page_payload(
+def build_wiki_page_payload(
     *,
     store: KnowledgeWorkspaceStore,
     workspace: KnowledgeWorkspaceRecord,
@@ -527,12 +527,12 @@ def get_wiki_page_payload(
         },
         "next_steps": [
             "Cite the page path when using this content.",
-            "Use get_source_evidence if the answer needs narrower original-source excerpts.",
+            "If narrower source text is needed, inspect the related raw cache file from the mounted workspace.",
         ],
     }
 
 
-def get_source_evidence_payload(
+def build_source_evidence_payload(
     *,
     store: KnowledgeWorkspaceStore,
     workspace: KnowledgeWorkspaceRecord,
@@ -596,7 +596,7 @@ def get_source_evidence_payload(
         "snippets": snippets,
         "next_steps": [
             "Use these snippets as original-source evidence, then cite the source_path, line_start/line_end, and related wiki page path.",
-            "When a search result already includes line_start, call get_source_evidence(..., source_path_or_name=source_path, line_start=..., line_limit=...) for a larger bounded excerpt.",
+            "When a search result already includes line_start, expand the same source file through the mounted workspace file path.",
         ],
     }
 
@@ -759,7 +759,6 @@ def _score_raw_source_lines(
                 "match_line": index + 1,
                 "match_kind": "phrase" if phrase_match else "proximity",
                 "matched_tokens": matched_tokens[:12],
-                "next_tool": "get_source_evidence",
             }
         )
     hits.sort(key=lambda item: (-float(item["raw_score"]), int(item["line_start"])))
@@ -855,7 +854,7 @@ def _build_wiki_pages_for_indexed_document(
     # concept pages because those polluted the llm-wiki graph with
     # per-section retrieval scaffolding. When the LLM does not produce a
     # source page, write one narrow evidence entry point so raw excerpts stay
-    # reachable through get_source_evidence.
+    # reachable through the mounted raw cache files.
     pages[source_page_path] = _build_source_page(
         job=job,
         indexed_document=indexed_document,

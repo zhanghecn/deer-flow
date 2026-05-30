@@ -17,6 +17,7 @@ from src.config.agents_config import (
     resolve_authored_agent_dir,
 )
 from src.config.paths import get_paths
+from src.models import create_chat_model
 from src.tools.tools import filter_main_agent_only_tools, get_available_tools
 
 
@@ -96,8 +97,17 @@ def _build_subagent_spec(
             agent_status=agent_status,
         ),
     }
+    if subagent.filesystem_enabled is not None:
+        # Filesystem tools are middleware-owned in Deep Agents, so custom
+        # subagents need a separate explicit switch from the normal tool
+        # whitelist when they must be pure judges or validators.
+        spec["filesystem_enabled"] = subagent.filesystem_enabled
     if subagent.model is not None:
-        spec["model"] = subagent.model
+        # Agent archives store OpenAgents model IDs, not LangChain provider
+        # strings. Resolve explicit subagent models through the project model
+        # catalog so custom gateways, base URLs, retry hooks, and tracing stay
+        # consistent with the main agent model path.
+        spec["model"] = create_chat_model(name=subagent.model, thinking_enabled=False)
     return spec
 
 

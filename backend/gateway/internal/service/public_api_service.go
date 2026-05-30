@@ -36,6 +36,7 @@ import (
 const publicAPIAssistantID = "lead_agent"
 
 var errArtifactNotFound = errors.New("artifact not found")
+var errAssistantResultMissing = errors.New("assistant response text was not found in thread state")
 
 type PublicAPIError struct {
 	StatusCode int
@@ -808,13 +809,19 @@ func (s *PublicAPIService) executeRun(
 		return nil, err
 	}
 
-	outputText, reasoningText, artifactPaths, err := extractAssistantResultFromState(statePayload)
-	if err != nil {
-		return nil, err
+	outputText, reasoningText, artifactPaths, resultErr := extractAssistantResultFromState(statePayload)
+	if resultErr != nil && !errors.Is(resultErr, errAssistantResultMissing) {
+		return nil, resultErr
 	}
-	outputText, err = normalizeStructuredOutputText(outputText, plan.Request.Text)
-	if err != nil {
-		return nil, err
+	if resultErr == nil {
+		outputText, err = normalizeStructuredOutputText(outputText, plan.Request.Text)
+		if err != nil {
+			return nil, err
+		}
+	} else if plan.Request.Text != nil && plan.Request.Text.Format != nil {
+		// Structured-output callers requested a text payload, so an artifact-only
+		// turn cannot satisfy that explicit northbound contract.
+		return nil, resultErr
 	}
 
 	if err := s.applyTraceUsage(ctx, plan); err != nil {
@@ -824,6 +831,9 @@ func (s *PublicAPIService) executeRun(
 	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths, baselineArtifacts)
 	if err != nil {
 		return nil, err
+	}
+	if resultErr != nil && len(responseArtifacts) == 0 {
+		return nil, resultErr
 	}
 	if len(ledgerArtifacts) > 0 {
 		if err := s.invocationRepo.AttachArtifacts(ctx, ledgerArtifacts); err != nil {
@@ -3185,7 +3195,7 @@ func extractAssistantResultFromState(payload []byte) (string, string, []string, 
 	if taskError != "" {
 		return "", "", artifactPaths, fmt.Errorf("runtime task failed: %s", taskError)
 	}
-	return "", "", artifactPaths, fmt.Errorf("assistant response text was not found in thread state")
+	return "", "", artifactPaths, errAssistantResultMissing
 }
 
 func extractStateValues(payload []byte) (map[string]any, error) {

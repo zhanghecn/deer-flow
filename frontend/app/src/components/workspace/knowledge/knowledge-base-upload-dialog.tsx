@@ -37,6 +37,8 @@ const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([
   ".pdf",
   ".doc",
   ".docx",
+  ".ppt",
+  ".pptx",
   ".md",
   ".markdown",
 ]);
@@ -387,7 +389,7 @@ export function KnowledgeBaseUploadDialog({
                 aria-label={t.knowledge.chooseFilesLabel}
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.md,.markdown"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.md,.markdown"
                 onChange={(event) =>
                   handleSelectedFiles(Array.from(event.target.files ?? []))
                 }
@@ -402,7 +404,7 @@ export function KnowledgeBaseUploadDialog({
                 aria-label={t.knowledge.chooseFolderLabel}
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.md,.markdown"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.md,.markdown"
                 onChange={(event) =>
                   handleSelectedFiles(Array.from(event.target.files ?? []))
                 }

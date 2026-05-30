@@ -205,6 +205,7 @@ class AgentSubagentConfig(BaseModel):
     system_prompt: str
     model: str | None = None
     tool_names: list[str] | None = None
+    filesystem_enabled: bool | None = None
     enabled: bool = True
 
     @model_validator(mode="after")
@@ -356,6 +357,8 @@ def serialize_agent_subagent(subagent: AgentSubagentConfig) -> dict[str, Any]:
         payload["model"] = subagent.model
     if subagent.tool_names is not None:
         payload["tool_names"] = subagent.tool_names
+    if subagent.filesystem_enabled is not None:
+        payload["filesystem_enabled"] = subagent.filesystem_enabled
     return payload
 
 
@@ -461,8 +464,10 @@ def load_agent_config(name: str | None, status: str = "dev", *, paths: Paths | N
 
     if "name" not in data:
         data["name"] = name
-    if "status" not in data:
-        data["status"] = status
+    # The directory selected by the caller owns archive status. An embedded
+    # stale `status` value must not make Python runtime disagree with Gateway
+    # or with the thread binding that chose the dev/prod archive path.
+    data["status"] = status
     if "agents_md_path" not in data:
         data["agents_md_path"] = AGENTS_MD_FILENAME
 

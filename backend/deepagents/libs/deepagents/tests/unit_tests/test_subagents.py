@@ -5,6 +5,7 @@ are invoked, how they return results, and how state is managed between parent
 and child agents.
 """
 
+import json
 import warnings
 from pathlib import Path
 from typing import Any, TypedDict
@@ -180,6 +181,329 @@ class TestSubAgents:
             "Preserve Markdown and do not summarize. "
             "Return a concise completion report for the parent."
         )
+
+    def test_task_writes_runtime_audit_file(self) -> None:
+        """Task calls persist a generic audit handoff without domain logic."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "analyze one dayun",
+                                    "prompt": "Return JSON and an audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_audit",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            '{"dayun":"己亥","predictions":[]}'
+                            '<openagents_task_audit>{"audit_id":"task-call_dayun_01"}</openagents_task_audit>'
+                        )
+                    )
+                ]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run audited task.")]},
+            config={"configurable": {"thread_id": "test_thread_task_audit"}},
+        )
+
+        audit_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/task-call_dayun_01.json"
+        file_data = result["files"][audit_path]
+        audit = json.loads("\n".join(file_data["content"]))
+        assert audit["schema_version"] == "openagents-task-audit/v1"
+        assert audit["audit_id"] == "task-call_dayun_01"
+        assert audit["tool_call_id"] == "call_audit"
+        assert audit["subagent_type"] == "general-purpose"
+        assert audit["status"] == "completed"
+        assert audit["result_text"] == '{"dayun":"己亥","predictions":[]}'
+
+    def test_task_audit_extracts_text_content_blocks(self) -> None:
+        """Provider content blocks should be treated like normal final text."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "validate block output",
+                                    "prompt": "Return JSON and an audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_content_block",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [
+                    AIMessage(
+                        content=[
+                            {
+                                "type": "text",
+                                "text": (
+                                    '{"passed":true}'
+                                    '<openagents_task_audit>{"audit_id":"task-call_block"}</openagents_task_audit>'
+                                ),
+                            }
+                        ]
+                    )
+                ]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run audited task.")]},
+            config={"configurable": {"thread_id": "test_thread_task_audit_content_block"}},
+        )
+
+        audit_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/task-call_block.json"
+        audit = json.loads("\n".join(result["files"][audit_path]["content"]))
+        assert audit["status"] == "completed"
+        assert audit["result_text"] == '{"passed":true}'
+
+    def test_task_audit_uses_json_top_level_audit_id(self) -> None:
+        """JSON-first subagent results can name their logical audit id directly."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "json audited output",
+                                    "prompt": "Return a JSON object with audit_id.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_json_audit",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [
+                    AIMessage(
+                        content='{"audit_id":"task-call_json","dayun":"己亥","predictions":[]}'
+                    )
+                ]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run JSON audited task.")]},
+            config={"configurable": {"thread_id": "test_thread_task_json_audit"}},
+        )
+
+        audit_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/task-call_json.json"
+        audit = json.loads("\n".join(result["files"][audit_path]["content"]))
+        assert audit["audit_id"] == "task-call_json"
+        assert audit["tool_call_id"] == "call_json_audit"
+        assert audit["tag_payload"] == {"audit_id": "task-call_json"}
+        assert audit["result_text"] == '{"audit_id":"task-call_json","dayun":"己亥","predictions":[]}'
+
+    def test_task_empty_result_is_visible_error(self) -> None:
+        """A task with no usable child result must not look completed."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "empty child output",
+                                    "prompt": "Return JSON and an audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_empty_child",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="saw error"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [
+                    AIMessage(
+                        content='<openagents_task_audit>{"audit_id":"task-call_empty"}</openagents_task_audit>'
+                    )
+                ]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run empty task.")]},
+            config={"configurable": {"thread_id": "test_thread_task_audit_empty"}},
+        )
+
+        audit_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/task-call_empty.json"
+        audit = json.loads("\n".join(result["files"][audit_path]["content"]))
+        tool_messages = [message for message in result["messages"] if message.type == "tool"]
+        assert audit["status"] == "error"
+        assert audit["result_text"] == ""
+        assert audit["error"] == "Subagent returned an empty final message."
+        assert any("subagent returned an empty final message" in message.content for message in tool_messages)
+
+    def test_retried_task_audit_uses_unique_attempt_file(self) -> None:
+        """Repeated logical audit ids should not force the model to delete files."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "validate first attempt",
+                                    "prompt": "Return JSON and an audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_audit_first",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "validate retry",
+                                    "prompt": "Return JSON and the same audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_audit_retry",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            '{"passed":true}'
+                            '<openagents_task_audit>{"audit_id":"stage-validator_01"}</openagents_task_audit>'
+                        )
+                    )
+                ]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run retried audited task.")]},
+            config={"configurable": {"thread_id": "test_thread_task_audit_retry"}},
+        )
+
+        base_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/stage-validator_01.json"
+        retry_prefix = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/stage-validator_01--"
+        retry_paths = [path for path in result["files"] if path.startswith(retry_prefix)]
+        assert base_path in result["files"]
+        assert len(retry_paths) == 1
+
+        base_audit = json.loads("\n".join(result["files"][base_path]["content"]))
+        retry_audit = json.loads("\n".join(result["files"][retry_paths[0]]["content"]))
+        assert base_audit["audit_id"] == "stage-validator_01"
+        assert retry_audit["audit_id"] == "stage-validator_01"
+        assert base_audit["tool_call_id"] == "call_audit_first"
+        assert retry_audit["tool_call_id"] == "call_audit_retry"
+        assert retry_audit["audit_file"] == retry_paths[0]
 
     def test_multiple_subagents_invoked_in_parallel(self) -> None:
         """Test that multiple different subagents can be launched in parallel.

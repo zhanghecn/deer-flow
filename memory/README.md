@@ -37,9 +37,10 @@ For broad repo work, read:
 1. `directives/testing-and-verification.md`
 2. `operations/development-testing.md`
 3. `directives/runtime-boundaries.md`
-4. `integrations/mcp.md`
-5. `integrations/public-api.md`
-6. `operations/current-stack.md`
+4. `directives/knowledge-base.md`
+5. `integrations/mcp.md`
+6. `integrations/public-api.md`
+7. `operations/current-stack.md`
 
 For historical context, read files under `archive/` only after the current docs
 and directives above.

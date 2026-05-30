@@ -126,6 +126,9 @@ Deer Flow-specific structured task envelope.
 
 Observability may persist derived summaries or validation flags, but the
 runtime/tool contract must stay on the minimal Claude Code shape above.
+Task audit persistence may read explicit machine-readable metadata from the
+subagent result itself, such as a JSON-first top-level `audit_id`, because that
+is result parsing rather than a new model-visible task parameter.
 
 ## Why The Provider Exists
 
@@ -283,6 +286,7 @@ Every runtime backend must preserve the same agent-visible paths:
 /mnt/user-data/tmp
 /mnt/user-data/uploads
 /mnt/user-data/outputs
+/mnt/user-data/knowledge
 /mnt/user-data/agents/{status}/{name}/...
 /mnt/user-data/authoring/...
 ```
@@ -294,6 +298,7 @@ Examples:
 - local mode may rewrite these paths to thread-local host directories
 - the current local/sandbox host layout is `.openagents/users/{user_id}/threads/{thread_id}/user-data`; old flat `.openagents/threads/{thread_id}` directories are migration input only
 - `/mnt/user-data/tmp` is the shared scratch exception and may map to one runtime-global temp directory visible to multiple agents
+- `/mnt/user-data/knowledge` is a server-side read-only route over attached compiled knowledge packages; it must not expose host paths or object-store keys
 - sandbox mode may mount them into a container
 - remote mode may rewrite them to a CLI session workspace on the user machine
 

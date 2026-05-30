@@ -1,7 +1,10 @@
 """Middleware for providing subagents to an agent via a `task` tool."""
 
+import json
+import re
 import warnings
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
 from typing import Annotated, Any, NotRequired, TypedDict, Unpack, cast
 
 from langchain.agents import create_agent
@@ -70,6 +73,14 @@ class SubAgent(TypedDict):
 
     middleware: NotRequired[list[AgentMiddleware]]
     """Additional middleware for custom behavior."""
+
+    filesystem_enabled: NotRequired[bool]
+    """Whether this subagent receives filesystem and shell middleware tools.
+
+    Defaults to the parent deep agent's filesystem setting. Product runtimes can
+    disable this for judge/validator subagents whose tool surface must be an
+    explicit whitelist, while leaving general-purpose agents unchanged.
+    """
 
     interrupt_on: NotRequired[dict[str, bool | InterruptOnConfig]]
     """Configure human-in-the-loop for specific tools."""
@@ -290,6 +301,26 @@ GENERAL_PURPOSE_SUBAGENT: SubAgent = {
     "system_prompt": DEFAULT_SUBAGENT_PROMPT,
 }
 
+TASK_AUDIT_SCHEMA_VERSION = "openagents-task-audit/v1"
+TASK_AUDIT_DIR = "/mnt/user-data/workspace/.openagents-task-audit/task-calls"
+TASK_AUDIT_TAG_RE = re.compile(r"<openagents_task_audit>\s*(\{.*?\})\s*</openagents_task_audit>", re.DOTALL)
+TASK_AUDIT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+
+def _is_existing_file_write_error(error: str) -> bool:
+    """Detect backend write failures caused by an already-persisted audit file."""
+    normalized = error.lower()
+    return "already exists" in normalized or "file exists" in normalized
+
+
+def _audit_attempt_suffix(tool_call_id: str) -> str:
+    """Build a lexically sortable suffix for repeated attempts of one audit id."""
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    sanitized_tool_call_id = re.sub(r"[^A-Za-z0-9_.:-]+", "_", tool_call_id.strip())
+    if sanitized_tool_call_id:
+        return f"{timestamp}--{sanitized_tool_call_id}"
+    return timestamp
+
 
 class _SubagentSpec(TypedDict):
     """Internal spec for building the task tool."""
@@ -390,6 +421,7 @@ def _get_subagents_legacy(
 def _build_task_tool(  # noqa: C901
     subagents: list[_SubagentSpec],
     task_description: str | None = None,
+    backend: BackendProtocol | BackendFactory | None = None,
 ) -> BaseTool:
     """Create a task tool from pre-built subagent graphs.
 
@@ -415,7 +447,248 @@ def _build_task_tool(  # noqa: C901
     else:
         description = task_description
 
-    def _return_command_with_state_update(result: dict, tool_call_id: str) -> Command:
+    def _resolve_backend(runtime: ToolRuntime) -> BackendProtocol | None:
+        """Resolve the runtime backend used for generic task audit persistence."""
+        if backend is None:
+            return None
+        if callable(backend):
+            return backend(runtime)  # ty: ignore[call-arg]
+        return backend
+
+    def _sanitize_audit_id(value: str | None, tool_call_id: str) -> str:
+        """Return a path-safe audit id without deriving any business meaning."""
+        candidate = str(value or "").strip()
+        if candidate and TASK_AUDIT_ID_RE.fullmatch(candidate):
+            return candidate
+        fallback = re.sub(r"[^A-Za-z0-9_.:-]+", "_", tool_call_id.strip())
+        return fallback or "task-call"
+
+    def _extract_json_audit_payload(message_text: str) -> dict[str, Any]:
+        """Extract audit metadata from a JSON-first subagent result.
+
+        The task tool contract stays limited to description/prompt/subagent_type.
+        When a subagent already returns a machine-readable JSON object, the
+        runtime can safely read an explicit top-level audit_id from that payload
+        without adding another model-visible task argument or parsing prose.
+        """
+        stripped = message_text.strip()
+        if stripped.startswith("```"):
+            stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        index = 0
+        while index < len(stripped) and stripped[index].isspace():
+            index += 1
+        if index >= len(stripped) or stripped[index] != "{":
+            return {}
+        try:
+            payload, _end = json.JSONDecoder().raw_decode(stripped[index:])
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        audit_id = payload.get("audit_id")
+        if not isinstance(audit_id, str) or not audit_id.strip():
+            return {}
+        audit_payload: dict[str, Any] = {"audit_id": audit_id.strip()}
+        output_file = payload.get("output_file")
+        if isinstance(output_file, str) and output_file.strip():
+            audit_payload["output_file"] = output_file.strip()
+        return audit_payload
+
+    def _extract_audit_tag(message_text: str) -> tuple[dict[str, Any], str]:
+        """Extract optional machine-readable task audit metadata from child output."""
+        match = TASK_AUDIT_TAG_RE.search(message_text)
+        if not match:
+            return _extract_json_audit_payload(message_text), message_text
+        cleaned_text = TASK_AUDIT_TAG_RE.sub("", message_text).rstrip()
+        try:
+            payload = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return {"tag_parse_error": "openagents_task_audit JSON 解析失败"}, cleaned_text
+        if not isinstance(payload, dict):
+            return {"tag_parse_error": "openagents_task_audit 必须是对象"}, cleaned_text
+        return payload, cleaned_text
+
+    def _extract_message_text(message: Any) -> str:
+        """Return text from a child final message across provider content shapes."""
+        text_attr = getattr(message, "text", None)
+        if isinstance(text_attr, str) and text_attr:
+            return text_attr.rstrip()
+        if callable(text_attr):
+            text_value = text_attr()
+            if isinstance(text_value, str) and text_value:
+                return text_value.rstrip()
+
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            return content.rstrip()
+        if not isinstance(content, list):
+            return ""
+
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "\n".join(parts).rstrip()
+
+    def _build_task_audit_payload(
+        *,
+        tool_call_id: str,
+        audit_id: str,
+        subagent_type: str,
+        description: str,
+        prompt: str,
+        status: str,
+        result_text: str = "",
+        error: str | None = None,
+        tag_payload: dict[str, Any] | None = None,
+        audit_file: str,
+    ) -> dict[str, Any]:
+        """Build a generic runtime task audit without domain-specific fields."""
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        payload: dict[str, Any] = {
+            "schema_version": TASK_AUDIT_SCHEMA_VERSION,
+            "audit_id": audit_id,
+            "audit_file": audit_file,
+            "tool_call_id": tool_call_id,
+            "subagent_type": subagent_type,
+            "description": description,
+            "status": status,
+            "started_at": now,
+            "finished_at": now,
+            "result_text": result_text,
+            # Store only a short prompt preview/hash-equivalent length signal so
+            # audits remain useful without duplicating large delegated prompts.
+            "prompt_preview": prompt[:500],
+            "prompt_length": len(prompt),
+        }
+        if error:
+            payload["error"] = error
+        if tag_payload:
+            payload["tag_payload"] = tag_payload
+            if tag_payload.get("output_file"):
+                payload["output_file"] = tag_payload["output_file"]
+        return payload
+
+    def _write_task_audit(
+        *,
+        runtime: ToolRuntime,
+        subagent_type: str,
+        description: str,
+        prompt: str,
+        result_text: str = "",
+        error: str | None = None,
+        tag_payload: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+        """Persist a task audit through the active backend path contract."""
+        audit_id = _sanitize_audit_id((tag_payload or {}).get("audit_id"), runtime.tool_call_id or "")
+        audit_file = f"{TASK_AUDIT_DIR}/{audit_id}.json"
+        payload = _build_task_audit_payload(
+            tool_call_id=runtime.tool_call_id or "",
+            audit_id=audit_id,
+            subagent_type=subagent_type,
+            description=description,
+            prompt=prompt,
+            status="error" if error else "completed",
+            result_text=result_text,
+            error=error,
+            tag_payload=tag_payload,
+            audit_file=audit_file,
+        )
+        resolved_backend = _resolve_backend(runtime)
+        if resolved_backend is None:
+            return payload, None, None
+        # Task audits are runtime-owned handoff files. They are written via the
+        # same backend as agent-visible files so remote/local/sandbox runs keep
+        # the `/mnt/user-data/...` virtual path contract.
+        write_result = resolved_backend.write(
+            audit_file,
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        )
+        if write_result.error and _is_existing_file_write_error(write_result.error):
+            # A logical audit id may be retried after a validator blocks a stage.
+            # Keep the model-facing audit_id stable, but move later attempts to
+            # unique files so the model never has to delete or forge runtime
+            # audit records to continue.
+            audit_file = f"{TASK_AUDIT_DIR}/{audit_id}--{_audit_attempt_suffix(runtime.tool_call_id or '')}.json"
+            payload["audit_file"] = audit_file
+            write_result = resolved_backend.write(
+                audit_file,
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            )
+        if write_result.error:
+            return payload, write_result.files_update, write_result.error
+        return payload, write_result.files_update, None
+
+    async def _awrite_task_audit(
+        *,
+        runtime: ToolRuntime,
+        subagent_type: str,
+        description: str,
+        prompt: str,
+        result_text: str = "",
+        error: str | None = None,
+        tag_payload: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
+        """Async variant of task-audit persistence for async tool execution."""
+        audit_id = _sanitize_audit_id((tag_payload or {}).get("audit_id"), runtime.tool_call_id or "")
+        audit_file = f"{TASK_AUDIT_DIR}/{audit_id}.json"
+        payload = _build_task_audit_payload(
+            tool_call_id=runtime.tool_call_id or "",
+            audit_id=audit_id,
+            subagent_type=subagent_type,
+            description=description,
+            prompt=prompt,
+            status="error" if error else "completed",
+            result_text=result_text,
+            error=error,
+            tag_payload=tag_payload,
+            audit_file=audit_file,
+        )
+        resolved_backend = _resolve_backend(runtime)
+        if resolved_backend is None:
+            return payload, None, None
+        write_result = await resolved_backend.awrite(
+            audit_file,
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        )
+        if write_result.error and _is_existing_file_write_error(write_result.error):
+            # Async subagent paths follow the same retry semantics as the sync
+            # path: repeated logical audit ids get new attempt files while the
+            # payload's audit_id remains the stable value requested by the child.
+            audit_file = f"{TASK_AUDIT_DIR}/{audit_id}--{_audit_attempt_suffix(runtime.tool_call_id or '')}.json"
+            payload["audit_file"] = audit_file
+            write_result = await resolved_backend.awrite(
+                audit_file,
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            )
+        if write_result.error:
+            return payload, write_result.files_update, write_result.error
+        return payload, write_result.files_update, None
+
+    def _command_for_task_error(
+        *,
+        tool_call_id: str,
+        message: str,
+        files_update: dict[str, Any] | None = None,
+    ) -> Command:
+        """Return a visible task error while preserving backend state updates."""
+        update: dict[str, Any] = {
+            "messages": [ToolMessage(message, tool_call_id=tool_call_id)],
+        }
+        if files_update is not None:
+            update["files"] = files_update
+        return Command(update=update)
+
+    def _return_command_with_state_update(
+        result: dict,
+        *,
+        runtime: ToolRuntime,
+        subagent_type: str,
+        description: str,
+        prompt: str,
+    ) -> Command:
         # Validate that the result contains a 'messages' key
         if "messages" not in result:
             error_msg = (
@@ -426,12 +699,55 @@ def _build_task_tool(  # noqa: C901
             raise ValueError(error_msg)
 
         state_update = {k: v for k, v in result.items() if k not in _EXCLUDED_STATE_KEYS}
-        # Strip trailing whitespace to prevent API errors with Anthropic
-        message_text = result["messages"][-1].text.rstrip() if result["messages"][-1].text else ""
+        # Strip trailing whitespace to prevent provider API errors, but keep
+        # content-block text because some chat adapters do not populate `.text`.
+        message_text = _extract_message_text(result["messages"][-1])
+        tag_payload, audit_result_text = _extract_audit_tag(message_text)
+        if not audit_result_text.strip():
+            _, files_update, audit_error = _write_task_audit(
+                runtime=runtime,
+                subagent_type=subagent_type,
+                description=description,
+                prompt=prompt,
+                result_text=audit_result_text,
+                error="Subagent returned an empty final message.",
+                tag_payload=tag_payload,
+            )
+            message = (
+                f"Error invoking subagent {subagent_type}: subagent returned an empty final message. "
+                "Retry with a narrower prompt or different subagent; do not treat this task as completed."
+            )
+            if audit_error:
+                message += f"\nError: failed to write task audit: {audit_error}"
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id or "",
+                message=message,
+                files_update=files_update,
+            )
+        _, files_update, audit_error = _write_task_audit(
+            runtime=runtime,
+            subagent_type=subagent_type,
+            description=description,
+            prompt=prompt,
+            result_text=audit_result_text,
+            tag_payload=tag_payload,
+        )
+        if audit_error:
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id or "",
+                message=f"Error: failed to write task audit: {audit_error}",
+                files_update=files_update,
+            )
+        if files_update is not None:
+            existing_files = state_update.get("files")
+            if isinstance(existing_files, dict):
+                state_update["files"] = {**existing_files, **files_update}
+            else:
+                state_update["files"] = files_update
         return Command(
             update={
                 **state_update,
-                "messages": [ToolMessage(message_text, tool_call_id=tool_call_id)],
+                "messages": [ToolMessage(message_text, tool_call_id=runtime.tool_call_id)],
             }
         )
 
@@ -492,8 +808,31 @@ def _build_task_tool(  # noqa: C901
             prompt,
             runtime,
         )
-        result = subagent.invoke(subagent_state)
-        return _return_command_with_state_update(result, runtime.tool_call_id)
+        try:
+            result = subagent.invoke(subagent_state)
+        except Exception as exc:  # noqa: BLE001 - task tool must surface child-run failures to the parent model.
+            _, files_update, audit_error = _write_task_audit(
+                runtime=runtime,
+                subagent_type=effective_subagent_type,
+                description=description,
+                prompt=prompt,
+                error=str(exc),
+            )
+            message = f"Error invoking subagent {effective_subagent_type}: {exc}"
+            if audit_error:
+                message += f"\nError: failed to write task audit: {audit_error}"
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id,
+                message=message,
+                files_update=files_update,
+            )
+        return _return_command_with_state_update(
+            result,
+            runtime=runtime,
+            subagent_type=effective_subagent_type,
+            description=description,
+            prompt=prompt,
+        )
 
     async def atask(
         description: Annotated[
@@ -522,8 +861,83 @@ def _build_task_tool(  # noqa: C901
             prompt,
             runtime,
         )
-        result = await subagent.ainvoke(subagent_state)
-        return _return_command_with_state_update(result, runtime.tool_call_id)
+        try:
+            result = await subagent.ainvoke(subagent_state)
+        except Exception as exc:  # noqa: BLE001 - task tool must surface child-run failures to the parent model.
+            _, files_update, audit_error = await _awrite_task_audit(
+                runtime=runtime,
+                subagent_type=effective_subagent_type,
+                description=description,
+                prompt=prompt,
+                error=str(exc),
+            )
+            message = f"Error invoking subagent {effective_subagent_type}: {exc}"
+            if audit_error:
+                message += f"\nError: failed to write task audit: {audit_error}"
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id,
+                message=message,
+                files_update=files_update,
+            )
+        if "messages" not in result:
+            error_msg = (
+                "CompiledSubAgent must return a state containing a 'messages' key. "
+                "Custom StateGraphs used with CompiledSubAgent should include 'messages' "
+                "in their state schema to communicate results back to the main agent."
+            )
+            raise ValueError(error_msg)
+
+        message_text = _extract_message_text(result["messages"][-1])
+        tag_payload, audit_result_text = _extract_audit_tag(message_text)
+        if not audit_result_text.strip():
+            _, files_update, audit_error = await _awrite_task_audit(
+                runtime=runtime,
+                subagent_type=effective_subagent_type,
+                description=description,
+                prompt=prompt,
+                result_text=audit_result_text,
+                error="Subagent returned an empty final message.",
+                tag_payload=tag_payload,
+            )
+            message = (
+                f"Error invoking subagent {effective_subagent_type}: subagent returned an empty final message. "
+                "Retry with a narrower prompt or different subagent; do not treat this task as completed."
+            )
+            if audit_error:
+                message += f"\nError: failed to write task audit: {audit_error}"
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id,
+                message=message,
+                files_update=files_update,
+            )
+        _, files_update, audit_error = await _awrite_task_audit(
+            runtime=runtime,
+            subagent_type=effective_subagent_type,
+            description=description,
+            prompt=prompt,
+            result_text=audit_result_text,
+            tag_payload=tag_payload,
+        )
+        if audit_error:
+            return _command_for_task_error(
+                tool_call_id=runtime.tool_call_id,
+                message=f"Error: failed to write task audit: {audit_error}",
+                files_update=files_update,
+            )
+
+        state_update = {k: v for k, v in result.items() if k not in _EXCLUDED_STATE_KEYS}
+        if files_update is not None:
+            existing_files = state_update.get("files")
+            if isinstance(existing_files, dict):
+                state_update["files"] = {**existing_files, **files_update}
+            else:
+                state_update["files"] = files_update
+        return Command(
+            update={
+                **state_update,
+                "messages": [ToolMessage(message_text, tool_call_id=runtime.tool_call_id)],
+            }
+        )
 
     return StructuredTool.from_function(
         name="task",
@@ -669,7 +1083,7 @@ class SubAgentMiddleware(AgentMiddleware[Any, ContextT, ResponseT]):
             msg = "SubAgentMiddleware requires either `backend` (new API) or `default_model` (deprecated API)"
             raise ValueError(msg)
 
-        task_tool = _build_task_tool(subagent_specs, task_description)
+        task_tool = _build_task_tool(subagent_specs, task_description, backend=backend if using_new_api else None)
 
         # Build system prompt with available agents
         if system_prompt and subagent_specs:
