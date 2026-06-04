@@ -29,8 +29,7 @@ class _FakeKnowledgeService:
 
 class _FakeWorkspaceStore:
     files = {
-        "raw/sources/.cache/cases.txt": "壬寅 庚戌 丁酉 壬寅\n甲辰 丙子 丁酉 乙巳\n",
-        "wiki/sources/cases.md": "# cases\n\nsource summary\n",
+        "sources/cases.md": "壬寅 庚戌 丁酉 壬寅\n甲辰 丙子 丁酉 乙巳\n",
     }
 
     def list_files(self, workspace: KnowledgeWorkspaceRecord, relative_prefix: str = ""):
@@ -79,9 +78,10 @@ def test_knowledge_filesystem_exposes_workspace_as_read_only_files() -> None:
             "modified_at": "",
         }
     ]
-    assert backend.glob_info("**/*.txt", "/八字案例__kb-1") == [
+    assert backend.glob_info("**/*.txt", "/八字案例__kb-1") == []
+    assert backend.glob_info("**/*.md", "/八字案例__kb-1") == [
         {
-            "path": "/八字案例__kb-1/raw/sources/.cache/cases.txt",
+            "path": "/八字案例__kb-1/sources/cases.md",
             "is_dir": False,
             "size": 0,
             "modified_at": "",
@@ -96,18 +96,18 @@ def test_knowledge_filesystem_grep_and_read_use_exact_lines() -> None:
 
     assert matches == [
         {
-            "path": "/八字案例__kb-1/raw/sources/.cache/cases.txt",
+            "path": "/八字案例__kb-1/sources/cases.md",
             "line": 1,
             "text": "壬寅 庚戌 丁酉 壬寅",
         },
         {
-            "path": "/八字案例__kb-1/raw/sources/.cache/cases.txt",
+            "path": "/八字案例__kb-1/sources/cases.md",
             "line": 2,
             "text": "甲辰 丙子 丁酉 乙巳",
         },
     ]
 
-    content = backend.read("/八字案例__kb-1/raw/sources/.cache/cases.txt", offset=1, limit=1)
+    content = backend.read("/八字案例__kb-1/sources/cases.md", offset=1, limit=1)
 
     assert "甲辰 丙子 丁酉 乙巳" in content
     assert "壬寅 庚戌 丁酉 壬寅" not in content
@@ -118,12 +118,12 @@ def test_knowledge_filesystem_grep_accepts_exact_file_path() -> None:
 
     matches = backend.grep_raw(
         "甲辰",
-        path="/八字案例__kb-1/raw/sources/.cache/cases.txt",
+        path="/八字案例__kb-1/sources/cases.md",
     )
 
     assert matches == [
         {
-            "path": "/八字案例__kb-1/raw/sources/.cache/cases.txt",
+            "path": "/八字案例__kb-1/sources/cases.md",
             "line": 2,
             "text": "甲辰 丙子 丁酉 乙巳",
         }

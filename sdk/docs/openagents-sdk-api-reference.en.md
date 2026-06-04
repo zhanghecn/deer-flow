@@ -325,9 +325,9 @@ Example response:
 Cancels an in-progress public API turn. Use this for user-visible stop buttons;
 do not rely on closing the browser stream as the only cancellation signal.
 
-The server resolves active LangGraph runs for the turn thread, interrupts them,
-and stores a terminal `canceled` turn snapshot. A successful response returns
-the same snapshot shape as `GET /v1/turns/{id}`.
+The server resolves active LangGraph runs for the turn thread, rolls back the
+in-flight run, and stores a terminal `canceled` turn snapshot. A successful
+response returns the same snapshot shape as `GET /v1/turns/{id}`.
 
 ## 8. Fetch Recent Turns
 

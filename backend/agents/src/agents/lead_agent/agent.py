@@ -130,7 +130,6 @@ class LeadAgentRuntimeContext(BaseModel):
     command_args: str | None = None
     command_prompt: str | None = None
     authoring_actions: list[str] = Field(default_factory=list)
-    knowledge_document_mentions: list[str] = Field(default_factory=list)
     original_user_input: str | None = None
     mode: str | None = None
     is_plan_mode: bool | None = None

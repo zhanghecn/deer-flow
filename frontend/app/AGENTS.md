@@ -109,7 +109,7 @@ Important directories:
 - Agent status values are `dev` and `prod`.
 - Slash commands are routing hints only. Do not parse free-form user text on the frontend to infer target agents, target skills, or other business entities.
 - The new-agent page may forward an explicit `target_agent_name` only because the UI already owns that value as a dedicated field. Do not re-introduce `is_bootstrap`, `soul`, or natural-language target inference on the frontend side.
-- Frontend may parse explicit syntax and machine-readable payloads such as slash tokens, `@document` mentions, and `<next_steps>` JSON.
+- Frontend may parse explicit syntax and machine-readable payloads such as slash tokens and `<next_steps>` JSON. Knowledge targets must come from explicit UI selections or tool/runtime contracts, not `@document` prose parsing.
 - Frontend must not read free-form user/assistant prose and infer runtime switching, next-step target agents, current-thread reuse, or other business behavior from that prose.
 
 ## Code Style

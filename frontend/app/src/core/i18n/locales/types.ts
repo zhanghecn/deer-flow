@@ -260,16 +260,13 @@ export interface Translations {
     loadingAttached: string;
     emptyAttached: string;
     chooseAtLeastOneFile: string;
-    invalidSelectedModel: string;
     defaultBaseName: string;
-    indexQueued: string;
+    preparationQueued: string;
     createError: string;
     uploadButton: string;
     newTitle: string;
     newDescription: string;
     newDescriptionGlobal: string;
-    modelLabel: string;
-    modelPlaceholder: string;
     namePlaceholder: string;
     descriptionPlaceholder: string;
     chooseFilesLabel: string;
@@ -294,7 +291,7 @@ export interface Translations {
     noDocumentSelectedTitle: string;
     noDocumentSelectedDescription: string;
     sourcesTab: string;
-    wikiWorkspaceTab: string;
+    sourceWorkspaceTab: string;
     knowledgeGraphTab: string;
     workspaceFiles: string;
     sourceDocuments: string;
@@ -312,7 +309,7 @@ export interface Translations {
     graphEdges: string;
     graphSelectedNode: string;
     graphNoNodeSelected: string;
-    graphOpenInWiki: string;
+    graphOpenSource: string;
     graphCommunities: string;
     graphInsights: string;
     graphIsolatedNodes: (count: number) => string;
@@ -324,7 +321,6 @@ export interface Translations {
     graphReset: string;
     graphTypeMode: string;
     graphCommunityMode: string;
-    graphHideStructural: string;
     graphHideIsolated: string;
     graphMaxLinks: string;
     graphAnyLinks: string;
@@ -387,22 +383,15 @@ export interface Translations {
     noBuildMessage: string;
     notAvailable: string;
     overviewTab: string;
-    treeTab: string;
     eventsTab: string;
-    indexTab: string;
     canonicalTab: string;
-    treePending: string;
-    loadingTree: string;
-    emptyTree: string;
     loadingEvents: string;
     emptyEvents: string;
-    loadingDebug: string;
     emptyCanonical: string;
     pageLabel: string;
     lineLabel: string;
     pageCount: (count: number) => string;
     nodeCount: (count: number) => string;
-    childCount: (count: number) => string;
     status: {
       queued: string;
       ready: string;

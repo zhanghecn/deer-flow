@@ -45,7 +45,6 @@ def _document(
         doc_description=f"description for {name}",
         error=None,
         page_count=20,
-        node_count=8,
         source_storage_path="knowledge/source.pdf",
         markdown_storage_path=None,
         preview_storage_path="knowledge/preview.pdf",
@@ -156,7 +155,6 @@ def test_build_knowledge_context_prompt_exposes_concise_workspace_mounts(monkeyp
     prompt = build_knowledge_context_prompt(
         {
             "thread_id": "thread-1",
-            "knowledge_document_mentions": ["annual-report.pdf"],
             "agent_name": "researcher",
             "agent_status": "dev",
         }
@@ -164,6 +162,7 @@ def test_build_knowledge_context_prompt_exposes_concise_workspace_mounts(monkeyp
 
     assert "<knowledge_context>" in prompt
     assert "Attached knowledge is mounted as read-only files at each mount_path" in prompt
+    assert "source files live under sources/" in prompt
     assert "<mount_path>/mnt/user-data/knowledge/Finance__kb-1</mount_path>" in prompt
     assert "workspace_id" in prompt
     assert "Use glob" not in prompt
@@ -377,7 +376,7 @@ def test_knowledge_context_middleware_does_not_retry_grep_only_answer_without_cu
                 ToolMessage(
                     tool_call_id="tool-tree",
                     name="grep",
-                    content="/mnt/user-data/knowledge/PRML__kb-1/wiki/sources/prml.md:12:Figure 1.1",
+                    content="/mnt/user-data/knowledge/PRML__kb-1/sources/prml.md:12:Figure 1.1",
                 ),
             ]
         },
@@ -437,7 +436,7 @@ def test_knowledge_context_middleware_does_not_retry_evidence_answer_without_vis
                             "id": "tool-1",
                             "name": "read_file",
                             "args": {
-                                "file_path": "/mnt/user-data/knowledge/PRML__kb-1/wiki/sources/prml.md",
+                                "file_path": "/mnt/user-data/knowledge/PRML__kb-1/sources/prml.md",
                                 "offset": 10,
                                 "limit": 20,
                             },

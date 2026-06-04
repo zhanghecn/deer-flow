@@ -21,7 +21,6 @@ var packageSubdirNames = map[string]struct{}{
 	"preview":   {},
 	"markdown":  {},
 	"canonical": {},
-	"index":     {},
 	"assets":    {},
 }
 

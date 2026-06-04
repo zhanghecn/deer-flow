@@ -1997,7 +1997,6 @@ export function useThreadStream({
                   typeof extraContext?.command_args === "string"
                     ? extraContext.command_args
                     : "",
-                modelName: selectedModelName,
                 files: knowledgeFiles,
               });
               setOptimisticMessages((messages) =>

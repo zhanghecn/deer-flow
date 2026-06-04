@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,20 +22,15 @@ vi.mock("@/core/i18n/hooks", () => ({
       common: {
         cancel: "Cancel",
         create: "Create",
-        loading: "Loading",
       },
       knowledge: {
         chooseAtLeastOneFile: "Choose at least one file.",
-        invalidSelectedModel:
-          "Select a valid model before creating a knowledge base.",
         defaultBaseName: "Knowledge Base",
         createError: "Failed to create knowledge base.",
-        indexQueued: "Knowledge indexing has been queued.",
+        preparationQueued: "Knowledge source preparation has been queued.",
         newTitle: "New Knowledge Base",
         newDescription: "Thread upload",
         newDescriptionGlobal: "Library upload",
-        modelLabel: "Index model",
-        modelPlaceholder: "Select a model",
         namePlaceholder: "Knowledge base name",
         descriptionPlaceholder: "Optional description for the agent",
         chooseFilesLabel: "Choose files",
@@ -49,46 +44,6 @@ vi.mock("@/core/i18n/hooks", () => ({
         uploadNextStepThread: "Thread next step",
         uploadNextStepLibrary: "Library next step",
       },
-    },
-  }),
-}));
-
-vi.mock("@/core/models/hooks", () => ({
-  useModels: () => ({
-    models: [
-      {
-        id: "model-flash",
-        name: "deepseek-v4-flash",
-        display_name: "DeepSeek Flash",
-      },
-      {
-        id: "model-1",
-        name: "kimi-k2.5",
-        display_name: "Kimi K2.5",
-      },
-      {
-        id: "model-2",
-        name: "qwen-max",
-        display_name: "Qwen Max",
-      },
-    ],
-    isLoading: false,
-    error: null,
-  }),
-}));
-
-vi.mock("@/core/settings", () => ({
-  getLocalSettings: () => ({
-    notification: {
-      enabled: true,
-    },
-    context: {
-      model_name: "kimi-k2.5",
-      mode: "pro",
-      agent_status: "dev",
-    },
-    layout: {
-      sidebar_collapsed: false,
     },
   }),
 }));
@@ -117,7 +72,7 @@ describe("KnowledgeBaseUploadDialog", () => {
     ensureThreadExists.mockResolvedValue(undefined);
   });
 
-  it("submits the explicitly selected model for thread knowledge creation", async () => {
+  it("creates thread knowledge from source files without a compile model", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -133,22 +88,16 @@ describe("KnowledgeBaseUploadDialog", () => {
       status: "queued",
     });
 
-    render(
+    const { getByRole } = render(
       <QueryClientProvider client={queryClient}>
         <KnowledgeBaseUploadDialog
           threadId="thread-1"
           open
           onOpenChange={vi.fn()}
-          defaultModelName="kimi-k2.5"
           ensureThreadExists={ensureThreadExists}
         />
       </QueryClientProvider>,
     );
-
-    await screen.findByText("DeepSeek Flash");
-
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "Qwen Max" }));
 
     const fileInput =
       document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -161,7 +110,7 @@ describe("KnowledgeBaseUploadDialog", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
       expect(ensureThreadExists).toHaveBeenCalledTimes(1);
@@ -170,7 +119,6 @@ describe("KnowledgeBaseUploadDialog", () => {
         expect.objectContaining({
           name: "contract",
           description: "",
-          modelName: "qwen-max",
           files: [
             expect.objectContaining({
               name: "contract.pdf",
@@ -190,7 +138,7 @@ describe("KnowledgeBaseUploadDialog", () => {
     expect(ensureCallOrder).toBeLessThan(createCallOrder);
   });
 
-  it("prefers the DeepSeek flash model for knowledge compilation", async () => {
+  it("creates library knowledge from source files without a compile model", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -206,17 +154,11 @@ describe("KnowledgeBaseUploadDialog", () => {
       status: "queued",
     });
 
-    render(
+    const { getByRole } = render(
       <QueryClientProvider client={queryClient}>
-        <KnowledgeBaseUploadDialog
-          open
-          onOpenChange={vi.fn()}
-          defaultModelName="kimi-k2.5"
-        />
+        <KnowledgeBaseUploadDialog open onOpenChange={vi.fn()} />
       </QueryClientProvider>,
     );
-
-    await screen.findByText("DeepSeek Flash");
 
     const fileInput =
       document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -229,13 +171,18 @@ describe("KnowledgeBaseUploadDialog", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
       expect(createKnowledgeBase).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "contract",
-          modelName: "deepseek-v4-flash",
+          description: "",
+          files: [
+            expect.objectContaining({
+              name: "contract.md",
+            }),
+          ],
         }),
       );
     });

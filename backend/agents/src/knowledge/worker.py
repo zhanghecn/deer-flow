@@ -8,13 +8,13 @@ import time
 from pathlib import Path
 
 from src.knowledge.models import QueuedKnowledgeBuildJob
-from src.knowledge.pageindex import build_document_index
 from src.knowledge.repository import KnowledgeRepository
+from src.knowledge.source_workspace import build_source_workspace_document
 from src.knowledge.storage import get_knowledge_asset_store
-from src.knowledge.wiki_workspace import KnowledgeWorkspaceStore, sync_indexed_document_to_workspace
+from src.knowledge.source_workspace_store import KnowledgeWorkspaceStore, sync_source_document_to_workspace
 
 logger = logging.getLogger(__name__)
-_INDEX_CACHE_VERSION = "pageindex-pg-v1"
+_SOURCE_WORKSPACE_CACHE_VERSION = "source-workspace-v1"
 _DEFAULT_POLL_INTERVAL_SECONDS = 2.0
 _DEFAULT_WORKER_CONCURRENCY = 1
 _MAX_WORKER_CONCURRENCY = 8
@@ -89,16 +89,16 @@ class _BuildJobObserver:
     def finish_success(self, *, elapsed_ms: int) -> None:
         self.log_event(
             stage="persist",
-            step_name="index_complete",
+            step_name="source_workspace_complete",
             status="completed",
-            message=f"Finished indexing {self._display_name}",
+            message=f"Finished preparing source workspace for {self._display_name}",
             elapsed_ms=elapsed_ms,
         )
         self._repository.update_build_job(
             job_id=self._job_id,
             status="ready",
             stage="completed",
-            message=f"Finished indexing {self._display_name}",
+            message=f"Finished preparing source workspace for {self._display_name}",
             progress_percent=100,
             finished=True,
         )
@@ -106,7 +106,7 @@ class _BuildJobObserver:
     def finish_error(self, *, error: str, elapsed_ms: int) -> None:
         self.log_event(
             stage="error",
-            step_name="index_failed",
+            step_name="source_workspace_failed",
             status="error",
             message=error,
             elapsed_ms=elapsed_ms,
@@ -118,13 +118,6 @@ class _BuildJobObserver:
             message=error[:2000],
             finished=True,
         )
-
-
-def _require_model_name(job: QueuedKnowledgeBuildJob) -> str:
-    model_name = str(job.model_name or "").strip()
-    if model_name:
-        return model_name
-    raise ValueError(f"Knowledge build job {job.job_id} requires an explicit model_name.") from None
 
 
 def _storage_ref_to_path(storage_ref: str | None) -> Path:
@@ -141,7 +134,7 @@ def _compute_content_sha256(
     file_kind: str,
 ) -> str:
     digest = hashlib.sha256()
-    digest.update(_INDEX_CACHE_VERSION.encode("utf-8"))
+    digest.update(_SOURCE_WORKSPACE_CACHE_VERSION.encode("utf-8"))
     digest.update(file_kind.lower().strip().encode("utf-8"))
     for label, path in (
         ("source", source_path),
@@ -172,49 +165,47 @@ def _resolve_job_paths(
     return source_path, markdown_path, preview_path
 
 
-def _reuse_existing_document_index(
+def _reuse_existing_source_document(
     *,
     repository: KnowledgeRepository,
     observer: _BuildJobObserver,
     job: QueuedKnowledgeBuildJob,
     content_sha256: str,
-    model_name: str,
     build_started_at: float,
 ) -> bool:
-    reusable_source_document_id = repository.find_reusable_document_index(
+    reusable_source_document_id = repository.find_reusable_source_document(
         document_id=job.document_id,
         file_kind=job.file_kind,
         content_sha256=content_sha256,
-        build_model_name=model_name,
     )
     if not reusable_source_document_id:
         return False
 
-    reused_index = repository.load_indexed_document(document_id=reusable_source_document_id)
-    if reused_index is None:
+    reused_source_document = repository.load_source_document(document_id=reusable_source_document_id)
+    if reused_source_document is None:
         return False
 
     observer.update_stage(
         stage="reuse",
-        message=f"Reusing an existing index for {job.display_name}",
+        message=f"Reusing an existing source workspace document for {job.display_name}",
         progress_percent=70,
     )
     observer.log_event(
         stage="reuse",
-        step_name="reuse_existing_index",
+        step_name="reuse_existing_source_workspace",
         status="completed",
-        message=f"Reused an existing persisted index for {job.display_name}",
+        message=f"Reused an existing source workspace document for {job.display_name}",
         metadata={"source_document_id": reusable_source_document_id},
     )
-    repository.replace_document_index(
+    repository.replace_source_document(
         document_id=job.document_id,
-        indexed_document=reused_index,
+        source_document=reused_source_document,
     )
     _sync_workspace_artifacts(
         repository=repository,
         observer=observer,
         job=job,
-        indexed_document=reused_index,
+        source_document=reused_source_document,
         content_sha256=content_sha256,
     )
     observer.finish_success(
@@ -228,7 +219,7 @@ def _sync_workspace_artifacts(
     repository: KnowledgeRepository,
     observer: _BuildJobObserver,
     job: QueuedKnowledgeBuildJob,
-    indexed_document,
+    source_document,
     content_sha256: str | None,
 ) -> None:
     workspace = repository.get_workspace_record(knowledge_base_id=job.knowledge_base_id)
@@ -236,28 +227,26 @@ def _sync_workspace_artifacts(
         raise ValueError(f"Knowledge workspace not found for base {job.knowledge_base_id}")
     observer.update_stage(
         stage="workspace",
-        message=f"Writing wiki workspace artifacts for {job.display_name}",
+        message=f"Writing source workspace files for {job.display_name}",
         progress_percent=99,
     )
-    # PageIndex work can run concurrently, but llm-wiki workspace files are a
-    # shared per-KB artifact. Serialize this critical section so index,
-    # overview, log, and shared concept pages are not overwritten by sibling
-    # document builds from the same knowledge base.
+    # Source workspace files are shared per knowledge base. Serialize the write
+    # so old compiled artifacts can be removed and the current source file can
+    # be made visible atomically from the agent's point of view.
     with _workspace_sync_lock_for(job.knowledge_base_id):
-        files_written = sync_indexed_document_to_workspace(
+        files_written = sync_source_document_to_workspace(
             store=KnowledgeWorkspaceStore(),
             workspace=workspace,
             job=job,
-            indexed_document=indexed_document,
+            source_document=source_document,
             content_sha256=content_sha256,
-            llm_ingest_enabled=True,
             observer=observer,
         )
     observer.log_event(
         stage="workspace",
-        step_name="wiki_workspace_sync",
+        step_name="source_workspace_sync",
         status="completed",
-        message=f"Wrote {len(files_written)} wiki workspace artifact(s) for {job.display_name}",
+        message=f"Wrote {len(files_written)} source workspace file(s) for {job.display_name}",
         metadata={"files_written": files_written, "workspace_id": workspace.id},
     )
 
@@ -276,7 +265,6 @@ def process_build_job(
     )
 
     try:
-        model_name = _require_model_name(job)
         source_path, markdown_path, preview_path = _resolve_job_paths(job)
         content_sha256 = _compute_content_sha256(
             source_path=source_path,
@@ -287,61 +275,57 @@ def process_build_job(
         repository.mark_document_processing(
             document_id=job.document_id,
             locator_type=_resolve_locator_type(job.file_kind),
-            build_model_name=model_name,
             content_sha256=content_sha256,
         )
         observer.update_stage(
             stage="queued",
-            message=f"Starting indexing for {job.display_name}",
+            message=f"Starting source workspace preparation for {job.display_name}",
             progress_percent=1,
         )
         observer.log_event(
             stage="queued",
             step_name="job_started",
             status="completed",
-            message=f"Started indexing {job.display_name}",
+            message=f"Started source workspace preparation for {job.display_name}",
         )
 
-        if _reuse_existing_document_index(
+        if _reuse_existing_source_document(
             repository=repository,
             observer=observer,
             job=job,
             content_sha256=content_sha256,
-            model_name=model_name,
             build_started_at=build_started_at,
         ):
             return
 
-        indexed_document = build_document_index(
+        source_document = build_source_workspace_document(
             source_path=source_path,
             file_kind=job.file_kind,
             display_name=job.display_name,
             markdown_path=markdown_path,
             preview_path=preview_path,
-            model_name=model_name,
-            observer=observer,
         )
         observer.update_stage(
             stage="persist",
-            message=f"Persisting index for {job.display_name}",
+            message=f"Persisting source workspace document for {job.display_name}",
             progress_percent=98,
         )
-        repository.replace_document_index(
+        repository.replace_source_document(
             document_id=job.document_id,
-            indexed_document=indexed_document,
+            source_document=source_document,
         )
         _sync_workspace_artifacts(
             repository=repository,
             observer=observer,
             job=job,
-            indexed_document=indexed_document,
+            source_document=source_document,
             content_sha256=content_sha256,
         )
         observer.finish_success(
             elapsed_ms=_elapsed_ms_since(build_started_at),
         )
     except Exception as exc:
-        logger.exception("Knowledge indexing failed for %s", job.display_name)
+        logger.exception("Knowledge source workspace preparation failed for %s", job.display_name)
         error_message = str(exc)
         repository.mark_document_error(
             document_id=job.document_id,

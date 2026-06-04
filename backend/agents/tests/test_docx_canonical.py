@@ -1,25 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-import sys
-import types
 import zipfile
 
-_CANONICAL_PATH = (
-    Path(__file__).resolve().parents[1] / "src/knowledge/pageindex/canonical.py"
+from src.knowledge.canonical import (
+    _extract_docx_markdown,
+    build_canonical_document,
 )
-_SPEC = importlib.util.spec_from_file_location("knowledge_pageindex_canonical", _CANONICAL_PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-_MODULE = importlib.util.module_from_spec(_SPEC)
-try:
-    import pymupdf as _pymupdf  # noqa: F401
-except ImportError:
-    sys.modules.setdefault("pymupdf", types.SimpleNamespace())
-sys.modules[_SPEC.name] = _MODULE
-_SPEC.loader.exec_module(_MODULE)
-build_canonical_document = _MODULE.build_canonical_document
-_extract_docx_markdown = _MODULE._extract_docx_markdown
 
 
 def _paragraph_xml(text: str) -> str:

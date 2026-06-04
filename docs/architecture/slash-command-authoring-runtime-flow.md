@@ -64,7 +64,6 @@
 允许：
 
 - slash token / `command_args`
-- 显式 `@document` 语法
 - `<next_steps>` JSON
 - `question_result` JSON
 - 显式 UI 字段

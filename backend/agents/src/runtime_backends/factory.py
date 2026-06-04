@@ -10,6 +10,7 @@ from src.config.paths import Paths
 from .knowledge_filesystem import KNOWLEDGE_ROUTE_PREFIX, ThreadKnowledgeFilesystemBackend
 from .local import build_local_workspace_backend, resolve_skills_mount
 from .operation_logging import wrap_runtime_backend_with_logging
+from .protected_paths import protect_runtime_owned_paths
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
 from .sandbox import build_sandbox_workspace_backend, resolve_default_execution_backend
 from .search_scope import scope_composite_root_search
@@ -65,8 +66,9 @@ def build_runtime_workspace_backend(
         user_id=user_id,
     )
     scoped_backend = scope_composite_root_search(backend_with_knowledge)
+    protected_backend = protect_runtime_owned_paths(scoped_backend)
     return wrap_runtime_backend_with_logging(
-        scoped_backend,
+        protected_backend,
         backend_kind=backend_kind,
         thread_id=thread_id,
     )

@@ -31,9 +31,9 @@ Notes:
   and Docker dev runs. Increase it when long-running runs would otherwise block
   newer threads behind a single worker.
 - `OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY` controls background knowledge
-  document build concurrency. Keep it close to the compile model's rate limit;
-  per-knowledge-base workspace writes remain serialized to preserve wiki graph
-  consistency.
+  document source-preparation concurrency. Tune it around file conversion, OCR,
+  object-store IO, and database throughput; knowledge preparation no longer
+  calls a compile model or writes generated wiki pages.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
 - `skills.path` points at the canonical authored skills-library root used for
@@ -68,17 +68,19 @@ export OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER=8
 
 ## Knowledge Build Concurrency
 
-Knowledge uploads are queued in PostgreSQL and compiled by background runtime
-workers. The default is intentionally conservative:
+Knowledge uploads are queued in PostgreSQL and prepared by background runtime
+workers. Preparation stores readable source Markdown and synchronizes the
+read-only `sources/` workspace; it does not perform semantic chunking or
+LLM-backed wiki compilation. The default is intentionally conservative:
 
 ```bash
 export OPENAGENTS_KNOWLEDGE_WORKER_CONCURRENCY=1
 ```
 
-Raise this to `2` or `4` when the compile model and gateway can handle more
-parallel requests. Workers claim jobs with row locks, while shared llm-wiki
-workspace writes for the same knowledge base are serialized so `wiki/index.md`,
-`wiki/overview.md`, `wiki/log.md`, and shared concept pages stay coherent.
+Raise this to `2` or `4` when conversion, object storage, and the gateway can
+handle more parallel requests. Workers claim jobs with row locks, while
+per-knowledge-base source workspace writes are serialized so stale generated
+artifacts can be removed without deleting current `sources/*.md` files.
 
 ### 1. Local Debug
 

@@ -30,8 +30,6 @@ The following are valid non-model responsibilities:
   - detect `/`
   - extract command token
   - preserve raw `command_args`
-- explicit mention syntax parsing
-  - examples: `@document`, `@doc[...]`, `@"..."`, `@knowledge[...]`
 - machine-readable payload parsing
   - examples: `<next_steps>...</next_steps>` JSON
   - `question_result` JSON
@@ -90,9 +88,7 @@ Do not create parallel truth from:
 These are current examples of acceptable parsing:
 
 - `frontend/app/src/core/commands/transform.ts`
-  - parses slash syntax and explicit `@document` mention syntax only
-- `backend/agents/src/knowledge/references.py`
-  - resolves explicit `@document` mention syntax to attached knowledge docs
+  - parses slash syntax and preserves raw command args only
 - `frontend/app/src/core/messages/utils.ts`
   - parses `<next_steps>` JSON and trusts only explicit fields such as `agent_name`
 - `backend/agents/src/agents/memory/prompt.py`

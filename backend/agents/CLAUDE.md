@@ -484,7 +484,7 @@ See [docs/summarization.md](docs/summarization.md) for details.
 For models with `supports_vision: true`:
 - Deep Agents `read_file` returns multimodal image blocks for image files
 - `UploadsMiddleware` injects current-turn uploaded images when the selected model supports vision
-- Knowledge visual inspection should use Wiki Workspace source evidence and attached/generated assets; document-level PageTree image tools are no longer exposed.
+- Knowledge visual inspection should use mounted source workspace evidence and attached/generated assets; document-level PageTree image tools are no longer exposed.
 
 ## Code Style
 

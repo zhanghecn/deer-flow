@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from src.config.paths import Paths, get_paths
 
-_PACKAGE_SUBDIR_NAMES = frozenset({"source", "preview", "markdown", "canonical", "index", "assets"})
+_PACKAGE_SUBDIR_NAMES = frozenset({"source", "preview", "markdown", "canonical", "assets"})
 
 
 @dataclass(frozen=True)

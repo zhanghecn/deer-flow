@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.knowledge import worker as knowledge_worker
-from src.knowledge.models import IndexedDocument, KnowledgeWorkspaceRecord, QueuedKnowledgeBuildJob
-from src.knowledge.worker import KnowledgeBuildWorker, process_build_job
+from src.knowledge.models import SourceDocument, KnowledgeWorkspaceRecord, QueuedKnowledgeBuildJob
+from src.knowledge.worker import KnowledgeBuildWorker
 
 
 class _FakeRepository:
@@ -41,14 +41,14 @@ class _FakeRepository:
     def mark_document_processing(self, **kwargs) -> None:
         self.document_processing_updates.append(kwargs)
 
-    def find_reusable_document_index(self, **kwargs) -> str | None:
+    def find_reusable_source_document(self, **kwargs) -> str | None:
         self.reuse_queries.append(kwargs)
         return None
 
-    def load_indexed_document(self, *, document_id: str):
+    def load_source_document(self, *, document_id: str):
         return None
 
-    def replace_document_index(self, **kwargs) -> None:
+    def replace_source_document(self, **kwargs) -> None:
         self.replaced_documents.append(kwargs)
 
     def mark_document_error(self, **kwargs) -> None:
@@ -59,14 +59,13 @@ class _FakeRepository:
         return self.workspace_record
 
 
-def _queued_job(*, model_name: str | None) -> QueuedKnowledgeBuildJob:
+def _queued_job() -> QueuedKnowledgeBuildJob:
     return QueuedKnowledgeBuildJob(
         job_id="job-1",
         knowledge_base_id="base-1",
         document_id="doc-1",
         user_id="user-1",
         thread_id="thread-1",
-        model_name=model_name,
         display_name="demo.pdf",
         file_name="demo.pdf",
         file_kind="pdf",
@@ -74,21 +73,6 @@ def _queued_job(*, model_name: str | None) -> QueuedKnowledgeBuildJob:
         markdown_storage_path=None,
         preview_storage_path=None,
     )
-
-
-def test_process_build_job_marks_error_when_model_name_is_missing():
-    repository = _FakeRepository()
-
-    process_build_job(repository=repository, job=_queued_job(model_name=None))
-
-    assert repository.document_errors == [
-        {
-            "document_id": "doc-1",
-            "error": "Knowledge build job job-1 requires an explicit model_name.",
-        }
-    ]
-    assert repository.build_job_updates[-1]["status"] == "error"
-    assert repository.build_job_updates[-1]["stage"] == "error"
 
 
 def test_knowledge_worker_concurrency_env_is_bounded(monkeypatch):
@@ -102,7 +86,7 @@ def test_knowledge_worker_concurrency_env_is_bounded(monkeypatch):
 
 
 def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
-    repository = _FakeRepository(job=_queued_job(model_name="kimi-k2.5"))
+    repository = _FakeRepository(job=_queued_job())
     source_path = tmp_path / "demo.pdf"
     source_path.write_bytes(b"pdf-bytes")
 
@@ -117,23 +101,19 @@ def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
         lambda **kwargs: "sha-256-demo",
     )
 
-    def fake_build_document_index(**kwargs) -> IndexedDocument:
-        assert kwargs["model_name"] == "kimi-k2.5"
+    def fake_build_source_workspace_document(**kwargs) -> SourceDocument:
         assert kwargs["source_path"] == Path(source_path)
-        return IndexedDocument(
+        return SourceDocument(
             display_name="demo.pdf",
             file_name="demo.pdf",
             file_kind="pdf",
             locator_type="page",
             page_count=1,
             doc_description="Demo document",
-            structure=[],
-            nodes=[],
             canonical_markdown="# Demo",
-            source_map=[],
         )
 
-    monkeypatch.setattr(knowledge_worker, "build_document_index", fake_build_document_index)
+    monkeypatch.setattr(knowledge_worker, "build_source_workspace_document", fake_build_source_workspace_document)
     monkeypatch.setattr(
         knowledge_worker,
         "_sync_workspace_artifacts",
@@ -147,7 +127,6 @@ def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
         {
             "document_id": "doc-1",
             "locator_type": "page",
-            "build_model_name": "kimi-k2.5",
             "content_sha256": "sha-256-demo",
         }
     ]
@@ -156,7 +135,6 @@ def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
             "document_id": "doc-1",
             "file_kind": "pdf",
             "content_sha256": "sha-256-demo",
-            "build_model_name": "kimi-k2.5",
         }
     ]
     assert repository.replaced_documents

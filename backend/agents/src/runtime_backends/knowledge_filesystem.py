@@ -22,7 +22,7 @@ from src.knowledge import KnowledgeService
 from src.knowledge.models import KnowledgeWorkspaceRecord
 from src.knowledge.runtime_mount import knowledge_workspace_mount_name
 from src.knowledge.storage import KnowledgeAssetStore, get_knowledge_asset_store
-from src.knowledge.wiki_workspace import KnowledgeWorkspaceStore, WorkspaceFile, normalize_workspace_path
+from src.knowledge.source_workspace_store import KnowledgeWorkspaceStore, WorkspaceFile, normalize_workspace_path
 
 KNOWLEDGE_ROUTE_PREFIX = "/mnt/user-data/knowledge/"
 _MAX_GREP_MATCHES = 1000

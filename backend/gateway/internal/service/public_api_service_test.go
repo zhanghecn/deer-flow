@@ -1238,7 +1238,7 @@ func TestCancelTurnCancelsLangGraphRunAndStoresCanceledSnapshot(t *testing.T) {
 	if snapshot.Metadata["source"] != "test" {
 		t.Fatalf("expected metadata to be preserved, got %#v", snapshot.Metadata)
 	}
-	if cancelPath != "/threads/thread-1/runs/run-1/cancel" || cancelAction != "interrupt" || cancelWait != "true" {
+	if cancelPath != "/threads/thread-1/runs/run-1/cancel" || cancelAction != "rollback" || cancelWait != "true" {
 		t.Fatalf("unexpected cancel request path=%q action=%q wait=%q", cancelPath, cancelAction, cancelWait)
 	}
 	if strings.Join(listedStatuses, ",") != "running,pending" {

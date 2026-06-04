@@ -704,6 +704,20 @@ func (s *PublicAPIService) failTurnExecution(
 	return wrapHandledTurnExecutionError(finalErr)
 }
 
+func (s *PublicAPIService) finishCanceledTurnIfExternallyCanceled(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	collector *turnCollector,
+	onEvent func(event model.TurnEvent) error,
+) (*model.TurnSnapshot, bool, error) {
+	canceled, err := s.turnWasExternallyCanceled(ctx, plan)
+	if err != nil || !canceled {
+		return nil, canceled, err
+	}
+	snapshot, err := s.finishCanceledTurn(ctx, plan, collector, onEvent)
+	return snapshot, true, err
+}
+
 func (s *PublicAPIService) finishCanceledTurn(
 	ctx context.Context,
 	plan *publicAPIRunPlan,
@@ -814,6 +828,25 @@ func (s *PublicAPIService) executeTurn(
 			"",
 		)
 	}
+	if canceled, err := s.turnWasExternallyCanceled(ctx, plan); err != nil {
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageStateFetch,
+			err,
+			"",
+			"",
+		)
+	} else if canceled {
+		// A concurrent `/v1/turns/{id}/cancel` can interrupt LangGraph cleanly,
+		// causing the stream request to return without an assistant message.
+		// Honor the durable invocation state before snapshot extraction so
+		// streaming SDK clients see `turn.canceled` instead of a false
+		// snapshot_build failure.
+		return s.finishCanceledTurn(ctx, plan, collector, onEvent)
+	}
 
 	statePayload, err := s.fetchThreadState(
 		ctx,
@@ -823,6 +856,9 @@ func (s *PublicAPIService) executeTurn(
 		plan.ModelName,
 	)
 	if err != nil {
+		if snapshot, canceled, cancelErr := s.finishCanceledTurnIfExternallyCanceled(ctx, plan, collector, onEvent); canceled || cancelErr != nil {
+			return snapshot, cancelErr
+		}
 		return nil, s.failTurnExecution(
 			ctx,
 			plan,
@@ -837,6 +873,9 @@ func (s *PublicAPIService) executeTurn(
 
 	outputText, reasoningText, artifactPaths, err := extractAssistantResultFromState(statePayload)
 	if err != nil {
+		if snapshot, canceled, cancelErr := s.finishCanceledTurnIfExternallyCanceled(ctx, plan, collector, onEvent); canceled || cancelErr != nil {
+			return snapshot, cancelErr
+		}
 		return nil, s.failTurnExecution(
 			ctx,
 			plan,
@@ -956,6 +995,24 @@ func (s *PublicAPIService) executeTurn(
 		return nil, err
 	}
 	return snapshot, nil
+}
+
+func (s *PublicAPIService) turnWasExternallyCanceled(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+) (bool, error) {
+	if s.invocationRepo == nil || plan == nil || plan.Invocation == nil {
+		return false, nil
+	}
+	invocation, err := s.invocationRepo.GetByResponseID(
+		detachedPublicAPIPersistenceContext(ctx),
+		plan.ResponseID,
+		plan.Auth.APITokenID,
+	)
+	if err != nil || invocation == nil {
+		return false, err
+	}
+	return invocation.Status == "canceled", nil
 }
 
 func (s *PublicAPIService) CreateTurn(

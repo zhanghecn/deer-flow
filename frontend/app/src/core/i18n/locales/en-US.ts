@@ -53,7 +53,7 @@ export const enUS: Translations = {
   // Commands
   commands: {
     knowledgeAdd:
-      "Index the uploaded files into the current thread knowledge base",
+      "Prepare uploaded source files for the current thread knowledge base",
     createAgent: "Create a new agent in the current workspace",
     createSkill: "Create a new skill in the current workspace",
     saveAgentToStore: "Save the current draft agent to the dev store",
@@ -337,10 +337,8 @@ export const enUS: Translations = {
     loadingAttached: "Loading attached knowledge...",
     emptyAttached: "No knowledge base is attached to this thread yet.",
     chooseAtLeastOneFile: "Choose at least one file.",
-    invalidSelectedModel:
-      "Select a valid model before creating a knowledge base.",
     defaultBaseName: "Knowledge Base",
-    indexQueued: "Knowledge indexing has been queued.",
+    preparationQueued: "Knowledge source preparation has been queued.",
     createError: "Failed to create knowledge base.",
     uploadButton: "Upload knowledge",
     newTitle: "New Knowledge Base",
@@ -348,8 +346,6 @@ export const enUS: Translations = {
       "Upload PDF, Word, PowerPoint, or Markdown files and build a persistent knowledge folder for this thread.",
     newDescriptionGlobal:
       "Upload PDF, Word, PowerPoint, or Markdown files and build a shared persistent knowledge folder for agents.",
-    modelLabel: "Index model",
-    modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
     descriptionPlaceholder: "Optional description for the agent",
     chooseFilesLabel: "Choose files",
@@ -357,42 +353,42 @@ export const enUS: Translations = {
     supportedFormatsHint:
       "Supported formats: PDF, DOC, DOCX, PPT, PPTX, MD, and Markdown.",
     unsupportedFilesSelected: (count: number) =>
-      `${count} selected file${count === 1 ? " is" : "s are"} not supported for knowledge indexing.`,
+      `${count} selected file${count === 1 ? " is" : "s are"} not supported for knowledge preparation.`,
     selectedFileCount: (count: number) =>
       `${count} file${count === 1 ? "" : "s"} ready to upload`,
     selectedFileSize: (size: string) => `Total size ${size}`,
     rejectedFileCount: (count: number) =>
       `${count} file${count === 1 ? "" : "s"} rejected`,
     uploadNextStepThread:
-      "After upload, use the attached knowledge section in chat to open details and monitor indexing.",
+      "After upload, use the attached knowledge section in chat to open details and monitor source preparation.",
     uploadNextStepLibrary:
-      "After upload, open the knowledge library entry to monitor indexing progress and inspect the parsed result.",
+      "After upload, open the knowledge library entry to monitor source preparation and inspect the source workspace.",
     managerTitle: "Knowledge Library",
     managerDescription:
-      "Browse shared knowledge by owner, inspect build progress, and review compiled workspace files.",
+      "Browse shared knowledge by owner, inspect build progress, and review source workspace files.",
     managerTitleGlobal: "Shared Knowledge Library",
     managerDescriptionGlobal:
-      "Browse owner folders, inspect indexing progress, and review compiled files, graph, and source text.",
+      "Browse owner folders, inspect processing progress, and review source files, graph, and source text.",
     libraryTitle: "Shared Library",
     libraryDescription:
       "Knowledge bases are grouped by owner. Attach a base to the current thread to make it available to the agent tools.",
     libraryDescriptionGlobal:
-      "Knowledge bases are grouped by owner so you can inspect shared documents, preview source files, and audit stored index data.",
+      "Knowledge bases are grouped by owner so you can inspect shared documents, preview source files, and audit source workspace output.",
     searchPlaceholder: "Search owners, bases, or documents",
     loadingLibrary: "Loading knowledge library...",
     emptyLibrary: "No shared knowledge matches the current search.",
     noDocumentSelectedTitle: "No Document Selected",
     noDocumentSelectedDescription:
-      "Choose a document on the left to inspect its build status, tree, and stored debug payload.",
+      "Choose a document on the left to inspect its build status, canonical text, and source preview.",
     sourcesTab: "Sources",
-    wikiWorkspaceTab: "Wiki Workspace",
+    sourceWorkspaceTab: "Source Workspace",
     knowledgeGraphTab: "Graph",
     workspaceFiles: "Workspace files",
     sourceDocuments: "Source documents",
     openSourcePreview: "Preview",
     loadingWorkspace: "Loading workspace...",
     emptyWorkspace: "No workspace files yet.",
-    workspaceDefaultTitle: "Wiki Workspace",
+    workspaceDefaultTitle: "Source Workspace",
     loadingWorkspaceFile: "Loading file...",
     selectWorkspaceFile: "Select a workspace file.",
     loadingGraph: "Loading graph...",
@@ -404,7 +400,7 @@ export const enUS: Translations = {
     graphEdges: "Edges",
     graphSelectedNode: "Selected node",
     graphNoNodeSelected: "Click a graph node to inspect its path and links.",
-    graphOpenInWiki: "Open in Wiki",
+    graphOpenSource: "Open source file",
     graphCommunities: "Communities",
     graphInsights: "Graph insights",
     graphIsolatedNodes: (count: number) =>
@@ -420,7 +416,6 @@ export const enUS: Translations = {
     graphReset: "Reset",
     graphTypeMode: "Type",
     graphCommunityMode: "Community",
-    graphHideStructural: "Hide index / overview",
     graphHideIsolated: "Hide isolated nodes",
     graphMaxLinks: "Maximum links",
     graphAnyLinks: "Any",
@@ -441,7 +436,7 @@ export const enUS: Translations = {
     readyCount: (count: number) => `${count} ready`,
     activeCount: (count: number) => `${count} active`,
     processingCount: (count: number) =>
-      `${count} indexing`,
+      `${count} preparing`,
     queuedCount: (count: number) => `${count} queued`,
     errorCount: (count: number) =>
       `${count} error${count === 1 ? "" : "s"}`,
@@ -459,7 +454,7 @@ export const enUS: Translations = {
     previewEnabled: "Preview enabled",
     previewDisabled: "Preview disabled",
     previewSetting: "Preview access",
-    previewSettingHint: "Allow other users to open tree/debug/source previews.",
+    previewSettingHint: "Allow other users to open source and canonical previews.",
     previewUpdateEnabled: (name: string) =>
       `Enabled preview access for "${name}".`,
     previewUpdateDisabled: (name: string) =>
@@ -473,14 +468,14 @@ export const enUS: Translations = {
     bindingError: "Failed to update knowledge binding.",
     deleteTitle: "Delete Knowledge Base",
     deleteDescription: (name: string) =>
-      `Delete "${name}" and all of its indexed documents? This action cannot be undone.`,
+      `Delete "${name}" and all prepared source documents? This action cannot be undone.`,
     deleteSuccess: (name: string) => `Deleted "${name}".`,
     deleteError: "Failed to delete knowledge base.",
     clearAllTitle: "Clear Knowledge Bases",
     clearAllSelfDescription: (count: number) =>
-      `Delete all ${count} of your knowledge bases? Indexed data, source files, and preview artifacts will also be removed. This action cannot be undone.`,
+      `Delete all ${count} of your knowledge bases? Source workspace files, canonical text, source files, and preview artifacts will also be removed. This action cannot be undone.`,
     clearAllOwnerDescription: (ownerName: string, count: number) =>
-      `Delete all ${count} knowledge bases owned by "${ownerName}"? Indexed data, source files, and preview artifacts will also be removed. This action cannot be undone.`,
+      `Delete all ${count} knowledge bases owned by "${ownerName}"? Source workspace files, canonical text, source files, and preview artifacts will also be removed. This action cannot be undone.`,
     clearAllSuccess: (count: number) =>
       `Cleared ${count} knowledge base${count === 1 ? "" : "s"}.`,
     clearAllOwnerSuccess: (ownerName: string, count: number) =>
@@ -488,7 +483,7 @@ export const enUS: Translations = {
     clearAllError: "Failed to clear knowledge bases.",
     buildProgressTitle: "Build Progress",
     buildProgressDescription:
-      "Latest indexing stage, timing, and job status for the selected document.",
+      "Latest source-preparation stage, timing, and job status for the selected document.",
     stageLabel: "Stage",
     progressLabel: "Progress",
     elapsedLabel: "Elapsed",
@@ -497,26 +492,19 @@ export const enUS: Translations = {
     noBuildMessage: "No build message yet.",
     notAvailable: "N/A",
     overviewTab: "Overview",
-    treeTab: "Tree",
     eventsTab: "Events",
-    indexTab: "Index JSON",
     canonicalTab: "Canonical Text",
-    treePending: "The document tree will appear after indexing finishes.",
-    loadingTree: "Loading document tree...",
-    emptyTree: "No tree nodes were returned for this document.",
     loadingEvents: "Loading build events...",
     emptyEvents: "No build events recorded yet.",
-    loadingDebug: "Loading debug payload...",
     emptyCanonical: "No canonical text stored for this document.",
     pageLabel: "Page",
     lineLabel: "Line",
     pageCount: (count: number) => `${count} page${count === 1 ? "" : "s"}`,
     nodeCount: (count: number) => `${count} node${count === 1 ? "" : "s"}`,
-    childCount: (count: number) => `${count} child${count === 1 ? "" : "ren"}`,
     status: {
       queued: "Queued",
       ready: "Ready",
-      processing: "Indexing",
+      processing: "Preparing",
       error: "Error",
     },
     selector: {

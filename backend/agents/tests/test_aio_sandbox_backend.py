@@ -8,6 +8,8 @@ from src.community.aio_sandbox import aio_sandbox as aio_sandbox_module
 
 class _DummyShell:
     def exec_command(self, **kwargs):
+        self.calls = getattr(self, "calls", [])
+        self.calls.append(kwargs)
         self.last_call = kwargs
         return SimpleNamespace(
             data=SimpleNamespace(output="sandbox-ok", status="completed", exit_code=0),
@@ -144,6 +146,37 @@ def test_aio_sandbox_execute_binds_shared_tmp_into_jail(monkeypatch):
     assert "--bind /openagents/runtime/tmp /tmp" in command
     assert "--setenv OPENAGENTS_TMP /mnt/user-data/tmp" in command
     assert "/mnt/user-data/tmp/cache" in command
+
+
+def test_aio_sandbox_execute_creates_runtime_owned_sources_before_bwrap(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+
+    runtime_root = "/openagents/users/user-1/threads/thread-audit/user-data"
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-audit",
+        base_url="http://sandbox.test",
+        runtime_root=runtime_root,
+    )
+
+    sandbox.execute("printf ok")
+
+    calls = sandbox._client.shell.calls
+    # bwrap runs in sandbox-aio, whose shared volume path is `/openagents`; the
+    # runtime-owned directories must exist there before they can be ro-bound.
+    assert calls[0]["command"] == (
+        "mkdir -p "
+        f"{runtime_root}/workspace/.openagents-task-audit "
+        f"{runtime_root}/workspace/.openagents-knowledge-audit"
+    )
+    command = calls[-1]["command"]
+    assert (
+        f"--ro-bind {runtime_root}/workspace/.openagents-task-audit "
+        "/mnt/user-data/workspace/.openagents-task-audit"
+    ) in command
+    assert (
+        f"--ro-bind {runtime_root}/workspace/.openagents-knowledge-audit "
+        "/mnt/user-data/workspace/.openagents-knowledge-audit"
+    ) in command
 
 
 def test_aio_sandbox_execute_binds_read_only_mounts_into_jail(monkeypatch):

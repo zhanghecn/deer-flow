@@ -11,7 +11,7 @@ export type LibraryDocumentView = KnowledgeDocument & {
   preview_enabled: boolean;
 };
 
-export type BaseWorkbenchTab = "wiki" | "graph";
+export type BaseWorkbenchTab = "source" | "graph";
 
 export type KnowledgePreviewMode = "preview" | "canonical";
 

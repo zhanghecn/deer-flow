@@ -28,6 +28,10 @@ VIRTUAL_WORKSPACE = f"{VIRTUAL_PATH_PREFIX}/workspace"
 SHELL_PATH = "/usr/bin/bash"
 DEFAULT_EXEC_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 READ_ONLY_BIND_DIRS = ("/usr", "/etc", "/bin", "/lib", "/lib64", "/sbin", "/opt")
+RUNTIME_OWNED_READ_ONLY_DIRS = (
+    "workspace/.openagents-task-audit",
+    "workspace/.openagents-knowledge-audit",
+)
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -292,6 +296,52 @@ class AioSandbox(Sandbox):
         for source, target in self._read_only_mounts:
             argv.extend(["--ro-bind", source, target])
 
+    def _runtime_owned_mount_sources(self) -> list[tuple[str, str]]:
+        """Return sandbox-visible runtime audit source/target mount pairs."""
+
+        return [
+            (
+                f"{self.runtime_root.rstrip('/')}/{relative_dir}",
+                f"{VIRTUAL_PATH_PREFIX}/{relative_dir}",
+            )
+            for relative_dir in RUNTIME_OWNED_READ_ONLY_DIRS
+        ]
+
+    def _ensure_runtime_owned_read_only_sources(self) -> None:
+        """Create runtime audit directories inside the sandbox-visible mount.
+
+        LangGraph and sandbox-aio see the same host bytes at different container
+        paths (`/openagents-home` versus `/openagents`). Creating these paths in
+        the LangGraph container is therefore insufficient for bwrap, which runs
+        inside sandbox-aio and requires every `--ro-bind` source to exist before
+        command launch.
+        """
+
+        sources = [source for source, _target in self._runtime_owned_mount_sources()]
+        if not sources:
+            return
+        command = "mkdir -p " + " ".join(shlex.quote(source) for source in sources)
+        self._client.shell.exec_command(
+            command=command,
+            exec_dir=self.home_dir,
+            timeout=10.0,
+            hard_timeout=10.0,
+            truncate=True,
+        )
+
+    def _append_runtime_owned_read_only_mounts(self, argv: list[str]) -> None:
+        """Keep runtime audit evidence readable but immutable to shell tools.
+
+        The parent runtime writes task/knowledge audits outside the model's
+        shell process. Shell commands run inside bwrap, so we overlay these
+        subdirectories as read-only after binding the wider `/mnt/user-data`
+        tree. That preserves validators' read access while preventing a model
+        from forging subagent or knowledge-tool evidence with `execute`.
+        """
+
+        for source, target in self._runtime_owned_mount_sources():
+            argv.extend(["--ro-bind", source, target])
+
     def _build_exec_jail_command(self, command: str) -> str:
         runtime_command = self._rewrite_command_paths(command, target_root=VIRTUAL_PATH_PREFIX)
 
@@ -351,6 +401,7 @@ class AioSandbox(Sandbox):
         # secret exposure through `sandbox.environment`.
         self._append_configured_environment(argv)
         self._append_read_only_mounts(argv)
+        self._append_runtime_owned_read_only_mounts(argv)
         for directory in READ_ONLY_BIND_DIRS:
             if os.path.exists(directory):
                 argv.extend(["--ro-bind", directory, directory])
@@ -630,6 +681,8 @@ class AioSandbox(Sandbox):
     ) -> ExecuteResponse:
         started_at = time.perf_counter()
         effective_timeout = timeout if timeout is not None else self._default_timeout
+        if not self._exec_isolation_disabled():
+            self._ensure_runtime_owned_read_only_sources()
         rewritten_command = (
             self._build_exec_jail_command(command)
             if not self._exec_isolation_disabled()

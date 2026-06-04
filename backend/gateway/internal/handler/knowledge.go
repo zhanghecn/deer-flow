@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,12 +33,9 @@ import (
 type KnowledgeHandler struct {
 	repo       *repository.KnowledgeRepo
 	threadRepo *repository.ThreadRepo
-	modelRepo  *repository.ModelRepo
 	fs         *storage.FS
 	assetStore *knowledgeasset.Store
 }
-
-var knowledgeCompileModelAliases = []string{"deepseek-flash", "deepseek-v4-flash"}
 
 type knowledgeCreateResponse struct {
 	KnowledgeBases []repository.KnowledgeBaseRecord `json:"knowledge_bases"`
@@ -51,11 +47,10 @@ type knowledgeAcceptedResponse struct {
 	Status          string `json:"status"`
 }
 
-type knowledgeIndexUploadedRequest struct {
+type knowledgeImportUploadedRequest struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Filenames   []string `json:"filenames"`
-	ModelName   string   `json:"model_name"`
 }
 
 type knowledgeUpdateSettingsRequest struct {
@@ -157,36 +152,26 @@ type knowledgeWorkspaceGraphRawNode struct {
 }
 
 var (
-	knowledgeMarkdownImageRefPattern  = regexp.MustCompile(`!\[[^\]]*]\(([^)]+)\)`)
-	knowledgeHTMLImageRefPattern      = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
-	knowledgeWorkspaceFrontmatter     = regexp.MustCompile(`(?s)^---\n(.*?)\n---`)
-	knowledgeWorkspaceTitlePattern    = regexp.MustCompile(`(?m)^title:\s*["']?(.+?)["']?\s*$`)
-	knowledgeWorkspaceTypePattern     = regexp.MustCompile(`(?m)^type:\s*["']?(.+?)["']?\s*$`)
-	knowledgeWorkspaceSourcesBlock    = regexp.MustCompile(`(?m)^sources:\s*\n((?:\s+-\s+.+\n?)*)`)
-	knowledgeWorkspaceSourcesInline   = regexp.MustCompile(`(?m)^sources:\s*\[([^\]]*)\]`)
-	knowledgeWorkspaceRelatedBlock    = regexp.MustCompile(`(?m)^related:\s*\n((?:\s+-\s+.+\n?)*)`)
-	knowledgeWorkspaceRelatedInline   = regexp.MustCompile(`(?m)^related:\s*\[([^\]]*)\]`)
-	knowledgeWorkspaceHeadingPattern  = regexp.MustCompile(`(?m)^#\s+(.+)$`)
-	knowledgeWorkspaceWikiLinkPattern = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]`)
-	knowledgeWorkspaceGraphKeySplit   = regexp.MustCompile(`[^0-9a-z\p{Han}]+`)
+	knowledgeMarkdownImageRefPattern     = regexp.MustCompile(`!\[[^\]]*]\(([^)]+)\)`)
+	knowledgeHTMLImageRefPattern         = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
+	knowledgeWorkspaceFrontmatter        = regexp.MustCompile(`(?s)^---\n(.*?)\n---`)
+	knowledgeWorkspaceTitlePattern       = regexp.MustCompile(`(?m)^title:\s*["']?(.+?)["']?\s*$`)
+	knowledgeWorkspaceSourcesBlock       = regexp.MustCompile(`(?m)^sources:\s*\n((?:\s+-\s+.+\n?)*)`)
+	knowledgeWorkspaceSourcesInline      = regexp.MustCompile(`(?m)^sources:\s*\[([^\]]*)\]`)
+	knowledgeWorkspaceRelatedBlock       = regexp.MustCompile(`(?m)^related:\s*\n((?:\s+-\s+.+\n?)*)`)
+	knowledgeWorkspaceRelatedInline      = regexp.MustCompile(`(?m)^related:\s*\[([^\]]*)\]`)
+	knowledgeWorkspaceHeadingPattern     = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+	knowledgeWorkspaceBracketLinkPattern = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]`)
+	knowledgeWorkspaceGraphKeySplit      = regexp.MustCompile(`[^0-9a-z\p{Han}]+`)
 )
-
-var knowledgeWorkspaceTypeAffinity = map[string]map[string]float64{
-	"entity":    {"concept": 1.2, "entity": 0.8, "source": 1.0, "synthesis": 1.0, "query": 0.8},
-	"concept":   {"entity": 1.2, "concept": 0.8, "source": 1.0, "synthesis": 1.2, "query": 1.0},
-	"source":    {"entity": 1.0, "concept": 1.0, "source": 0.5, "query": 0.8, "synthesis": 1.0},
-	"query":     {"concept": 1.0, "entity": 0.8, "synthesis": 1.0, "source": 0.8, "query": 0.5},
-	"synthesis": {"concept": 1.2, "entity": 1.0, "source": 1.0, "query": 1.0, "synthesis": 0.8},
-}
 
 func NewKnowledgeHandler(
 	repo *repository.KnowledgeRepo,
 	threadRepo *repository.ThreadRepo,
-	modelRepo *repository.ModelRepo,
 	fs *storage.FS,
 	assetStore *knowledgeasset.Store,
 ) *KnowledgeHandler {
-	return &KnowledgeHandler{repo: repo, threadRepo: threadRepo, modelRepo: modelRepo, fs: fs, assetStore: assetStore}
+	return &KnowledgeHandler{repo: repo, threadRepo: threadRepo, fs: fs, assetStore: assetStore}
 }
 
 func (h *KnowledgeHandler) materializeAgentDefaultKnowledgeBases(
@@ -337,53 +322,6 @@ func filterKnowledgeBasesForReadyDocuments(
 	return filtered
 }
 
-func (h *KnowledgeHandler) DocumentTree(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == uuid.Nil {
-		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
-		return
-	}
-
-	threadID := strings.TrimSpace(c.Param("id"))
-	documentID := strings.TrimSpace(c.Param("document_id"))
-	if threadID == "" || documentID == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread id and document id are required"})
-		return
-	}
-
-	tree, err := h.repo.GetDocumentTreeByThread(c.Request.Context(), userID, threadID, documentID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load document tree"})
-		return
-	}
-	c.Data(http.StatusOK, "application/json; charset=utf-8", tree)
-}
-
-func (h *KnowledgeHandler) VisibleDocumentTree(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == uuid.Nil {
-		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
-		return
-	}
-
-	documentID := strings.TrimSpace(c.Param("document_id"))
-	if documentID == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "document id is required"})
-		return
-	}
-
-	tree, err := h.repo.GetVisibleDocumentTree(c.Request.Context(), userID, documentID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document not found or preview is disabled"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load document tree"})
-		return
-	}
-	c.Data(http.StatusOK, "application/json; charset=utf-8", tree)
-}
-
 func (h *KnowledgeHandler) DocumentBuildEvents(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {
@@ -435,56 +373,6 @@ func (h *KnowledgeHandler) VisibleDocumentBuildEvents(c *gin.Context) {
 		events = []repository.KnowledgeBuildEventRecord{}
 	}
 	c.JSON(http.StatusOK, gin.H{"events": events})
-}
-
-func (h *KnowledgeHandler) DocumentDebug(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == uuid.Nil {
-		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
-		return
-	}
-
-	documentID := strings.TrimSpace(c.Param("document_id"))
-	if documentID == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "document id is required"})
-		return
-	}
-
-	record, err := h.repo.GetVisibleDocumentDebug(c.Request.Context(), userID, documentID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document not found or preview is disabled"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load document debug payload"})
-		return
-	}
-
-	if record.CanonicalMarkdown == nil || strings.TrimSpace(*record.CanonicalMarkdown) == "" {
-		if canonicalRef := debugCanonicalStorageRef(record.Document); canonicalRef != "" {
-			canonical := h.readStorageText(canonicalRef)
-			if canonical != nil {
-				record.CanonicalMarkdown = canonical
-			}
-		}
-	}
-	if len(record.SourceMapJSON) == 0 || string(record.SourceMapJSON) == "null" {
-		record.SourceMapJSON = h.readStorageJSON(firstNonEmptyRef(record.Document.CanonicalStoragePath, record.Document.SourceStoragePath), "canonical.map.json")
-	}
-	if len(record.DocumentIndexJSON) == 0 || string(record.DocumentIndexJSON) == "null" || string(record.DocumentIndexJSON) == "{}" {
-		record.DocumentIndexJSON = h.readStorageJSON(firstNonEmptyRef(record.Document.CanonicalStoragePath, record.Document.SourceStoragePath), "document_index.json")
-	}
-	c.JSON(http.StatusOK, record)
-}
-
-func debugCanonicalStorageRef(document repository.KnowledgeDocumentRecord) string {
-	if ref := firstNonEmptyRef(document.CanonicalStoragePath, document.MarkdownStoragePath); ref != "" {
-		return ref
-	}
-	if strings.EqualFold(strings.TrimSpace(document.FileKind), "markdown") {
-		return firstNonEmptyRef(document.SourceStoragePath)
-	}
-	return ""
 }
 
 func (h *KnowledgeHandler) WorkspaceTree(c *gin.Context) {
@@ -540,7 +428,7 @@ func (h *KnowledgeHandler) WorkspaceGraph(c *gin.Context) {
 		return
 	}
 	prefix := knowledgeWorkspaceRelativePrefix(workspace.OwnerID, workspace.ID)
-	paths, err := h.assetStore.ListRelativePaths(c.Request.Context(), filepath.ToSlash(filepath.Join(prefix, "wiki")))
+	paths, err := h.assetStore.ListRelativePaths(c.Request.Context(), filepath.ToSlash(filepath.Join(prefix, "sources")))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list knowledge workspace graph"})
 		return
@@ -551,7 +439,7 @@ func (h *KnowledgeHandler) WorkspaceGraph(c *gin.Context) {
 		if !strings.HasSuffix(path, ".md") {
 			continue
 		}
-		workspacePath := filepath.ToSlash(filepath.Join("wiki", path))
+		workspacePath := filepath.ToSlash(filepath.Join("sources", path))
 		storageRef := h.assetStore.RefForRelativePath(filepath.ToSlash(filepath.Join(prefix, workspacePath)))
 		data, err := h.assetStore.ReadAll(c.Request.Context(), storageRef)
 		if err != nil {
@@ -559,17 +447,13 @@ func (h *KnowledgeHandler) WorkspaceGraph(c *gin.Context) {
 		}
 		nodeID := strings.TrimSuffix(filepath.Base(path), ".md")
 		content := string(data)
-		nodeType := workspaceMarkdownType(content)
-		if nodeType == "query" {
-			continue
-		}
 		nodes[nodeID] = &knowledgeWorkspaceGraphRawNode{
 			id:      nodeID,
 			label:   workspaceMarkdownTitle(content, filepath.Base(path)),
-			kind:    nodeType,
+			kind:    "source",
 			path:    workspacePath,
 			sources: workspaceMarkdownSources(content),
-			links:   workspaceWikiLinks(content),
+			links:   workspaceMarkdownLinks(content),
 			out:     map[string]bool{},
 			in:      map[string]bool{},
 		}
@@ -853,12 +737,6 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 		}
 	}
 	description := strings.TrimSpace(c.PostForm("description"))
-	modelName, err := h.resolveKnowledgeCompileModel(c.Request.Context(), c.PostForm("model_name"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-
 	baseID := uuid.NewString()
 	pendingDocuments := make([]knowledgePendingDocument, 0, len(files))
 	for index, fileHeader := range files {
@@ -883,7 +761,6 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 		description,
 		sourceType,
 		commandName,
-		modelName,
 		pendingDocuments,
 	); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
@@ -1075,7 +952,7 @@ func (h *KnowledgeHandler) DeleteAllBases(c *gin.Context) {
 	})
 }
 
-func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
+func (h *KnowledgeHandler) ImportUploaded(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
@@ -1088,7 +965,7 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		return
 	}
 
-	var req knowledgeIndexUploadedRequest
+	var req knowledgeImportUploadedRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -1097,12 +974,6 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "filenames are required"})
 		return
 	}
-	modelName, err := h.resolveKnowledgeCompileModel(c.Request.Context(), req.ModelName)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-
 	baseName := strings.TrimSpace(req.Name)
 	if baseName == "" {
 		baseName = "Thread Knowledge Base"
@@ -1132,7 +1003,6 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		strings.TrimSpace(req.Description),
 		"command",
 		"knowledge-add",
-		modelName,
 		pendingDocuments,
 	); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
@@ -1148,129 +1018,13 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 func (h *KnowledgeHandler) respondWithThreadKnowledgeBases(c *gin.Context, userID uuid.UUID, threadID string) {
 	items, err := h.repo.ListByThread(c.Request.Context(), userID, threadID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "knowledge indexing completed but listing failed"})
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "knowledge source preparation completed but listing failed"})
 		return
 	}
 	if items == nil {
 		items = []repository.KnowledgeBaseRecord{}
 	}
 	c.JSON(http.StatusOK, knowledgeCreateResponse{KnowledgeBases: items})
-}
-
-func (h *KnowledgeHandler) resolveKnowledgeCompileModel(ctx context.Context, requested string) (string, error) {
-	normalized := strings.TrimSpace(requested)
-	if normalized != "" {
-		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, normalized); err != nil {
-			return "", err
-		} else if modelName != "" {
-			return modelName, nil
-		}
-		if !isKnowledgeCompileModelAlias(normalized) {
-			return "", fmt.Errorf("model_name %q is not enabled", normalized)
-		}
-	}
-
-	if normalized == "" {
-		modelName, err := h.resolvePreferredKnowledgeCompileModel(ctx)
-		if err != nil {
-			return "", err
-		}
-		if modelName != "" {
-			return modelName, nil
-		}
-	}
-
-	for _, candidate := range knowledgeCompileModelAliases {
-		if normalized == candidate {
-			continue
-		}
-		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, candidate); err != nil {
-			return "", err
-		} else if modelName != "" {
-			return modelName, nil
-		}
-	}
-
-	if normalized == "" {
-		return "", fmt.Errorf("knowledge compile model requires an enabled flash model")
-	}
-	return "", fmt.Errorf("model_name %q is not enabled", normalized)
-}
-
-func isKnowledgeCompileModelAlias(modelName string) bool {
-	normalized := strings.TrimSpace(modelName)
-	for _, candidate := range knowledgeCompileModelAliases {
-		if normalized == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func (h *KnowledgeHandler) resolvePreferredKnowledgeCompileModel(ctx context.Context) (string, error) {
-	records, err := h.modelRepo.ListEnabled(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to validate model_name: %w", err)
-	}
-	return preferredKnowledgeCompileModelName(records), nil
-}
-
-func preferredKnowledgeCompileModelName(records []repository.ModelRecord) string {
-	bestName := ""
-	bestPriority := 100
-	for _, record := range records {
-		priority := knowledgeCompileModelPriority(record)
-		if priority >= bestPriority {
-			continue
-		}
-		bestPriority = priority
-		bestName = record.Name
-	}
-	if bestPriority >= 100 {
-		return ""
-	}
-	return bestName
-}
-
-func knowledgeCompileModelPriority(record repository.ModelRecord) int {
-	haystack := strings.ToLower(strings.Join([]string{
-		record.Name,
-		optionalStringValue(record.DisplayName),
-		record.Provider,
-		modelConfigStringValue(record.ConfigJSON, "model"),
-	}, " "))
-	if !strings.Contains(haystack, "flash") {
-		return 100
-	}
-	if strings.Contains(haystack, "deepseek") {
-		return 0
-	}
-	return 10
-}
-
-func (h *KnowledgeHandler) resolveEnabledCompileModelCandidate(ctx context.Context, candidate string) (string, error) {
-	normalized := strings.TrimSpace(candidate)
-	if normalized == "" {
-		return "", nil
-	}
-	record, err := h.modelRepo.FindEnabledByName(ctx, normalized)
-	if err != nil {
-		return "", fmt.Errorf("failed to validate model_name: %w", err)
-	}
-	if record != nil {
-		return normalized, nil
-	}
-
-	// Operators may expose the same fast compile model under a synced provider
-	// name while product copy calls it `deepseek-flash`; persist the enabled
-	// database name so workers can load it.
-	if normalized == "deepseek-flash" {
-		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, "deepseek-v4-flash"); err != nil || modelName != "" {
-			return modelName, err
-		}
-		return h.resolvePreferredKnowledgeCompileModel(ctx)
-	}
-	return "", nil
 }
 
 func knowledgeUploadRelativePaths(form *multipart.Form, files []*multipart.FileHeader) ([]string, error) {
@@ -1309,27 +1063,11 @@ func cleanKnowledgeUploadRelativePath(value string) (string, error) {
 	if filepath.Base(clean) == "." || filepath.Base(clean) == ".." || filepath.Base(clean) == "" {
 		return "", fmt.Errorf("invalid knowledge upload filename: %s", value)
 	}
-	// The relative path is part of the compiled source identity, while the
-	// physical source file stays inside a per-document package. Preserving this
-	// path lets folder imports compile into useful wiki names instead of sixty
-	// indistinguishable `cases.md` pages.
+	// The relative path is part of the source identity, while the physical file
+	// stays inside a per-document package. Preserving this path lets folder
+	// imports surface useful source workspace names instead of many
+	// indistinguishable `cases.md` files.
 	return clean, nil
-}
-
-func optionalStringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func modelConfigStringValue(raw json.RawMessage, key string) string {
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	value, _ := payload[key].(string)
-	return strings.TrimSpace(value)
 }
 
 func firstNonEmptyRef(values ...*string) string {
@@ -1343,35 +1081,6 @@ func firstNonEmptyRef(values ...*string) string {
 		}
 	}
 	return ""
-}
-
-func (h *KnowledgeHandler) readStorageText(storageRef string) *string {
-	trimmed := strings.TrimSpace(storageRef)
-	if trimmed == "" {
-		return nil
-	}
-	data, err := h.assetStore.ReadAll(context.Background(), trimmed)
-	if err != nil {
-		return nil
-	}
-	text := string(data)
-	return &text
-}
-
-func (h *KnowledgeHandler) readStorageJSON(baseStorageRef string, fallbackFileName string) json.RawMessage {
-	trimmed := strings.TrimSpace(baseStorageRef)
-	if trimmed == "" {
-		return nil
-	}
-	packageRef, err := h.assetStore.ResolvePackageRelativeRef(trimmed, filepath.ToSlash(filepath.Join("index", fallbackFileName)))
-	if err != nil {
-		return nil
-	}
-	data, err := h.assetStore.ReadAll(context.Background(), packageRef)
-	if err == nil {
-		return json.RawMessage(data)
-	}
-	return nil
 }
 
 func (h *KnowledgeHandler) saveUploadedKnowledgeFile(
@@ -1638,13 +1347,6 @@ func workspaceMarkdownTitle(content string, filename string) string {
 	return strings.ReplaceAll(strings.TrimSuffix(filename, ".md"), "-", " ")
 }
 
-func workspaceMarkdownType(content string) string {
-	if match := knowledgeWorkspaceTypePattern.FindStringSubmatch(workspaceFrontmatter(content)); len(match) == 2 {
-		return strings.ToLower(strings.Trim(strings.TrimSpace(match[1]), `"'`))
-	}
-	return "other"
-}
-
 func workspaceMarkdownSources(content string) []string {
 	fm := workspaceFrontmatter(content)
 	sources := make([]string, 0)
@@ -1669,19 +1371,17 @@ func workspaceMarkdownSources(content string) []string {
 	return dedupeStrings(sources)
 }
 
-func workspaceWikiLinks(content string) []string {
-	matches := knowledgeWorkspaceWikiLinkPattern.FindAllStringSubmatch(content, -1)
+func workspaceMarkdownLinks(content string) []string {
+	matches := knowledgeWorkspaceBracketLinkPattern.FindAllStringSubmatch(content, -1)
 	links := make([]string, 0, len(matches))
 	for _, match := range matches {
 		if len(match) == 2 {
 			links = append(links, strings.TrimSpace(match[1]))
 		}
 	}
-	// Browser graph construction runs in the gateway, so it must enforce the
-	// same llm-wiki relationship contract as the Python worker. Providers can
-	// emit valid `related` frontmatter while forgetting the matching body
-	// wikilink; treating related slugs as graph targets prevents index-only
-	// graphs without changing the stored source text.
+	// Browser graph construction runs in the gateway. If source Markdown carries
+	// `related` frontmatter, treat those entries as graph targets without
+	// mutating the stored source text.
 	links = append(links, workspaceRelatedLinks(content)...)
 	return links
 }
@@ -1717,10 +1417,10 @@ func normalizeWorkspaceRelatedTarget(raw string) string {
 	if item == "" {
 		return ""
 	}
-	if matches := knowledgeWorkspaceWikiLinkPattern.FindAllStringSubmatch(item, -1); len(matches) > 0 {
-		return workspaceWikiPathSlug(matches[0][1])
+	if matches := knowledgeWorkspaceBracketLinkPattern.FindAllStringSubmatch(item, -1); len(matches) > 0 {
+		return workspaceGraphTargetSlug(matches[0][1])
 	}
-	return workspaceWikiPathSlug(item)
+	return workspaceGraphTargetSlug(item)
 }
 
 func resolveWorkspaceGraphTarget(raw string, nodes map[string]*knowledgeWorkspaceGraphRawNode) string {
@@ -1745,7 +1445,7 @@ func resolveWorkspaceGraphTarget(raw string, nodes map[string]*knowledgeWorkspac
 	return ""
 }
 
-func workspaceWikiPathSlug(raw string) string {
+func workspaceGraphTargetSlug(raw string) string {
 	cleaned := strings.Trim(strings.TrimSpace(raw), `"'`)
 	cleaned = strings.ReplaceAll(cleaned, "\\", "/")
 	cleaned = strings.TrimSuffix(cleaned, ".md")
@@ -1812,15 +1512,9 @@ func calculateWorkspaceGraphRelevance(
 		adamic += 1 / math.Log(float64(degree))
 	}
 
-	affinity := 0.5
-	if typeMap, ok := knowledgeWorkspaceTypeAffinity[a.kind]; ok {
-		if value, ok := typeMap[b.kind]; ok {
-			affinity = value
-		}
-	}
-	// Keep the same four-signal relevance model as llm_wiki: direct links,
-	// shared sources, common neighbors, and page-type affinity.
-	score := direct*3.0 + sourceOverlap*4.0 + adamic*1.5 + affinity
+	// Keep graph relevance explainable: direct links, shared source labels,
+	// and common neighbors are deterministic and auditable source-only signals.
+	score := direct*3.0 + sourceOverlap*4.0 + adamic*1.5
 	return math.Round(score*1000) / 1000
 }
 
@@ -1972,8 +1666,8 @@ func assignWorkspaceGraphCommunities(
 			TopNodes:  topNodes,
 		})
 	}
-	// Preserve llm_wiki's stable display contract: largest communities get the
-	// lowest ids, and node.community points at the displayed order.
+	// Largest communities get the lowest ids so node.community points at the
+	// displayed order instead of an incidental traversal order.
 	sort.Slice(communities, func(i, j int) bool {
 		if communities[i].NodeCount != communities[j].NodeCount {
 			return communities[i].NodeCount > communities[j].NodeCount
@@ -1997,13 +1691,12 @@ func buildWorkspaceGraphInsights(
 	edges []knowledgeWorkspaceGraphEdge,
 	communities []knowledgeWorkspaceGraphCommunity,
 ) knowledgeWorkspaceGraphInsights {
-	structural := map[string]bool{"index": true, "log": true, "overview": true}
 	isolated := make([]knowledgeWorkspaceGraphInsightNode, 0)
 	for _, node := range nodes {
 		if len(isolated) >= 8 {
 			break
 		}
-		if node.LinkCount <= 1 && !structural[node.ID] && node.Type != "overview" {
+		if node.LinkCount <= 1 {
 			isolated = append(isolated, knowledgeWorkspaceGraphInsightNode{ID: node.ID, Label: node.Label})
 		}
 	}
@@ -2040,7 +1733,7 @@ func knowledgeDocumentRelativePrefixFromStorageRef(storageRef string) string {
 	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(storageRef)))
 	parent := filepath.ToSlash(filepath.Dir(clean))
 	switch filepath.Base(parent) {
-	case "source", "preview", "markdown", "canonical", "index", "assets":
+	case "source", "preview", "markdown", "canonical", "assets":
 		return filepath.ToSlash(filepath.Dir(parent))
 	default:
 		return parent
@@ -2078,7 +1771,6 @@ func (h *KnowledgeHandler) queuePendingKnowledgeBuild(
 	description string,
 	sourceType string,
 	commandName string,
-	modelName string,
 	pending []knowledgePendingDocument,
 ) error {
 	documents := make([]repository.QueuedKnowledgeDocumentInput, 0, len(pending))
@@ -2092,7 +1784,6 @@ func (h *KnowledgeHandler) queuePendingKnowledgeBuild(
 			SourceStoragePath:   document.SourceStoragePath,
 			MarkdownStoragePath: optionalTrimmedString(document.MarkdownStoragePath),
 			PreviewStoragePath:  optionalTrimmedString(document.PreviewStoragePath),
-			ModelName:           modelName,
 		})
 	}
 	return h.repo.QueueBaseBuild(ctx, repository.QueueKnowledgeBaseBuildParams{

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -49,10 +48,6 @@ def test_migrate_document_package_rewrites_refs_and_uploads_package(tmp_path: Pa
         document_id="d-1",
         source_storage_path="knowledge/users/u-1/bases/b-1/documents/d-1/source/demo.pdf",
         canonical_storage_path="knowledge/users/u-1/bases/b-1/documents/d-1/canonical/canonical.md",
-        document_index_json={
-            "source_storage_path": "knowledge/users/u-1/bases/b-1/documents/d-1/source/demo.pdf",
-            "canonical_storage_path": "knowledge/users/u-1/bases/b-1/documents/d-1/canonical/canonical.md",
-        },
     )
 
     migrated = migrate_document_package(
@@ -66,7 +61,7 @@ def test_migrate_document_package_rewrites_refs_and_uploads_package(tmp_path: Pa
     assert migrated.uploaded_file_count == 2
 
 
-def test_migrate_document_package_refreshes_document_index_payload(tmp_path: Path):
+def test_migrate_document_package_does_not_write_deprecated_index_payload(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     package_dir = base_dir / "knowledge" / "users" / "u-1" / "bases" / "b-1" / "documents" / "d-1"
     source_path = package_dir / "source" / "demo.pdf"
@@ -77,9 +72,6 @@ def test_migrate_document_package_refreshes_document_index_payload(tmp_path: Pat
     snapshot = KnowledgeDocumentStorageSnapshot(
         document_id="d-1",
         source_storage_path="knowledge/users/u-1/bases/b-1/documents/d-1/source/demo.pdf",
-        document_index_json={
-            "source_storage_path": "knowledge/users/u-1/bases/b-1/documents/d-1/source/demo.pdf",
-        },
     )
 
     migrated = migrate_document_package(
@@ -88,10 +80,8 @@ def test_migrate_document_package_refreshes_document_index_payload(tmp_path: Pat
         snapshot=snapshot,
     )
 
-    target_ref = "s3://knowledge/users/u-1/bases/b-1/documents/d-1/index/document_index.json"
-    assert target_ref in store.written_text
-    payload = json.loads(store.written_text[target_ref])
-    assert payload["source_storage_path"] == migrated.source_storage_path
+    assert migrated.source_storage_path == "s3://knowledge/users/u-1/bases/b-1/documents/d-1/source/demo.pdf"
+    assert store.written_text == {}
 
 
 def test_migrate_document_package_rejects_non_object_store(tmp_path: Path):

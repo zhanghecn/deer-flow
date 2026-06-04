@@ -42,6 +42,17 @@ Instructions go here.
 """
 
 
+def _runtime_task_audit_marker(content: str) -> dict[str, Any]:
+    """Parse the runtime audit marker returned inside a task ToolMessage."""
+    start_tag = "<openagents_runtime_task_audit>"
+    end_tag = "</openagents_runtime_task_audit>"
+    assert start_tag in content
+    assert end_tag in content
+    start = content.index(start_tag) + len(start_tag)
+    end = content.index(end_tag, start)
+    return json.loads(content[start:end])
+
+
 class TestSubAgents:
     """Tests for sub-agent middleware functionality."""
 
@@ -244,6 +255,71 @@ class TestSubAgents:
         assert audit["subagent_type"] == "general-purpose"
         assert audit["status"] == "completed"
         assert audit["result_text"] == '{"dayun":"己亥","predictions":[]}'
+        tool_messages = [message for message in result["messages"] if message.type == "tool"]
+        marker = _runtime_task_audit_marker(tool_messages[-1].content)
+        assert marker["audit_id"] == "task-call_dayun_01"
+        assert marker["audit_file"] == audit_path
+        assert marker["tool_call_id"] == "call_audit"
+        assert "<openagents_task_audit>" not in tool_messages[-1].content
+
+    def test_task_result_exposes_runtime_audit_id_when_child_omits_tag(self) -> None:
+        """Parent agents should not have to guess runtime audit identifiers."""
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "search cases",
+                                    "prompt": "Return the search result without an audit tag.",
+                                    "subagent_type": "general-purpose",
+                                },
+                                "id": "call_real_runtime_id",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="done"),
+                ]
+            )
+        )
+        compiled_subagent = RunnableLambda(
+            lambda _state: {
+                "messages": [AIMessage(content="case search complete")]
+            }
+        )
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        result = parent_agent.invoke(
+            {"messages": [HumanMessage(content="Run unaudited child result.")]},
+            config={"configurable": {"thread_id": "test_thread_runtime_audit_marker"}},
+        )
+
+        audit_path = "/mnt/user-data/workspace/.openagents-task-audit/task-calls/call_real_runtime_id.json"
+        audit = json.loads("\n".join(result["files"][audit_path]["content"]))
+        tool_messages = [message for message in result["messages"] if message.type == "tool"]
+        marker = _runtime_task_audit_marker(tool_messages[-1].content)
+        assert audit["audit_id"] == "call_real_runtime_id"
+        assert marker == {
+            "audit_id": "call_real_runtime_id",
+            "audit_file": audit_path,
+            "tool_call_id": "call_real_runtime_id",
+            "subagent_type": "general-purpose",
+            "status": "completed",
+        }
 
     def test_task_audit_extracts_text_content_blocks(self) -> None:
         """Provider content blocks should be treated like normal final text."""
@@ -615,16 +691,19 @@ class TestSubAgents:
         assert "call_addition" in tool_messages_by_id, "Should have response from addition subagent"
         assert "call_multiplication" in tool_messages_by_id, "Should have response from multiplication subagent"
 
-        # Verify the exact content of each response by looking up the specific tool message
+        # Verify each response still starts with the child result, followed by
+        # runtime audit metadata that lets the parent cite the real audit file.
         addition_tool_message = tool_messages_by_id["call_addition"]
-        assert addition_tool_message.content == "The sum of 5 and 7 is 12.", (
+        assert addition_tool_message.content.startswith("The sum of 5 and 7 is 12."), (
             f"Addition subagent should return exact message, got: {addition_tool_message.content}"
         )
+        assert _runtime_task_audit_marker(addition_tool_message.content)["audit_id"] == "call_addition"
 
         multiplication_tool_message = tool_messages_by_id["call_multiplication"]
-        assert multiplication_tool_message.content == "The product of 4 and 6 is 24.", (
+        assert multiplication_tool_message.content.startswith("The product of 4 and 6 is 24."), (
             f"Multiplication subagent should return exact message, got: {multiplication_tool_message.content}"
         )
+        assert _runtime_task_audit_marker(multiplication_tool_message.content)["audit_id"] == "call_multiplication"
 
     def test_agent_with_structured_output_tool_strategy(self) -> None:
         """Test that an agent with ToolStrategy properly generates structured output.
@@ -1068,20 +1147,24 @@ class TestSubAgents:
             "Parent agent state should not contain structured_response key (it should be excluded per _EXCLUDED_STATE_KEYS)"
         )
 
-        # Verify the exact content of the ToolMessages
+        # Verify the child response remains first in the ToolMessages. The
+        # runtime audit marker follows it so parent agents can record the proof
+        # file without guessing an id.
         # When a subagent uses ToolStrategy for structured output, the default tool message
         # content shows the structured response using the Pydantic model's string representation
         weather_tool_message = tool_messages_by_id["call_weather"]
         expected_weather_content = "Returning structured response: city='Tokyo' temperature_celsius=22.5 humidity_percent=65"
-        assert weather_tool_message.content == expected_weather_content, (
+        assert weather_tool_message.content.startswith(expected_weather_content), (
             f"Expected weather ToolMessage content:\n{expected_weather_content}\nGot:\n{weather_tool_message.content}"
         )
+        assert _runtime_task_audit_marker(weather_tool_message.content)["audit_id"] == "call_weather"
 
         population_tool_message = tool_messages_by_id["call_population"]
         expected_population_content = "Returning structured response: city='Tokyo' population=14000000 metro_area_population=37400000"
-        assert population_tool_message.content == expected_population_content, (
+        assert population_tool_message.content.startswith(expected_population_content), (
             f"Expected population ToolMessage content:\n{expected_population_content}\nGot:\n{population_tool_message.content}"
         )
+        assert _runtime_task_audit_marker(population_tool_message.content)["audit_id"] == "call_population"
 
     def test_lc_agent_name_and_tags_in_streaming_metadata(self) -> None:
         """Test that lc_agent_name and tags are correctly set in streaming metadata.

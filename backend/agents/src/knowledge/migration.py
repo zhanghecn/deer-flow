@@ -1,22 +1,19 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
 
 from src.config.paths import Paths, get_paths
 from src.config.runtime_db import get_runtime_db_store
 from src.knowledge.storage import KnowledgeAssetStore, get_knowledge_asset_store
 
 
-_PACKAGE_SUBDIR_NAMES = frozenset({"source", "preview", "markdown", "canonical", "index", "assets"})
+_PACKAGE_SUBDIR_NAMES = frozenset({"source", "preview", "markdown", "canonical", "assets"})
 _STORAGE_REF_FIELDS = (
     "source_storage_path",
     "markdown_storage_path",
     "preview_storage_path",
     "canonical_storage_path",
-    "source_map_storage_path",
 )
 
 
@@ -27,8 +24,6 @@ class KnowledgeDocumentStorageSnapshot:
     markdown_storage_path: str | None = None
     preview_storage_path: str | None = None
     canonical_storage_path: str | None = None
-    source_map_storage_path: str | None = None
-    document_index_json: dict[str, Any] | None = None
 
     def storage_refs(self) -> dict[str, str | None]:
         return {
@@ -36,7 +31,6 @@ class KnowledgeDocumentStorageSnapshot:
             "markdown_storage_path": self.markdown_storage_path,
             "preview_storage_path": self.preview_storage_path,
             "canonical_storage_path": self.canonical_storage_path,
-            "source_map_storage_path": self.source_map_storage_path,
         }
 
     def needs_migration(self) -> bool:
@@ -50,8 +44,6 @@ class MigratedKnowledgeDocumentStorage:
     markdown_storage_path: str | None
     preview_storage_path: str | None
     canonical_storage_path: str | None
-    source_map_storage_path: str | None
-    document_index_json: dict[str, Any] | None
     uploaded_file_count: int
     package_root_key: str
 
@@ -100,24 +92,12 @@ def migrate_document_package(
             asset_store.sync_local_file(storage_ref=target_ref, local_path=current_path)
         uploaded_file_count += 1
 
-    updated_document_index = _rewrite_document_index_json(snapshot.document_index_json, migrated_refs)
-    target_document_index_ref = asset_store.storage_ref_from_relative_path(
-        PurePosixPath(package_root_key, "index", "document_index.json").as_posix()
-    )
-    if updated_document_index is not None and not dry_run:
-        asset_store.write_text(
-            storage_ref=target_document_index_ref,
-            text=json.dumps(updated_document_index, ensure_ascii=False, indent=2),
-        )
-
     return MigratedKnowledgeDocumentStorage(
         document_id=snapshot.document_id,
         source_storage_path=str(migrated_refs["source_storage_path"]),
         markdown_storage_path=migrated_refs["markdown_storage_path"],
         preview_storage_path=migrated_refs["preview_storage_path"],
         canonical_storage_path=migrated_refs["canonical_storage_path"],
-        source_map_storage_path=migrated_refs["source_map_storage_path"],
-        document_index_json=updated_document_index,
         uploaded_file_count=uploaded_file_count,
         package_root_key=package_root_key,
     )
@@ -136,9 +116,7 @@ def migrate_all_documents(*, paths: Paths | None = None, dry_run: bool = False) 
             source_storage_path,
             markdown_storage_path,
             preview_storage_path,
-            canonical_storage_path,
-            source_map_storage_path,
-            document_index_json
+            canonical_storage_path
         FROM knowledge_documents
         ORDER BY created_at ASC, id ASC
     """
@@ -155,8 +133,6 @@ def migrate_all_documents(*, paths: Paths | None = None, dry_run: bool = False) 
             markdown_storage_path=row[2],
             preview_storage_path=row[3],
             canonical_storage_path=row[4],
-            source_map_storage_path=row[5],
-            document_index_json=row[6] if isinstance(row[6], dict) else None,
         )
         if not snapshot.needs_migration():
             continue
@@ -172,7 +148,6 @@ def migrate_all_documents(*, paths: Paths | None = None, dry_run: bool = False) 
         if dry_run:
             continue
 
-        updated_document_index = result.document_index_json or snapshot.document_index_json or {}
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -181,8 +156,6 @@ def migrate_all_documents(*, paths: Paths | None = None, dry_run: bool = False) 
                     markdown_storage_path = %s,
                     preview_storage_path = %s,
                     canonical_storage_path = %s,
-                    source_map_storage_path = %s,
-                    document_index_json = %s::jsonb,
                     updated_at = NOW()
                 WHERE id = %s::uuid
                 """,
@@ -191,25 +164,11 @@ def migrate_all_documents(*, paths: Paths | None = None, dry_run: bool = False) 
                     result.markdown_storage_path,
                     result.preview_storage_path,
                     result.canonical_storage_path,
-                    result.source_map_storage_path,
-                    json.dumps(updated_document_index, ensure_ascii=False),
                     result.document_id,
                 ),
             )
 
     return migrated
-
-
-def _rewrite_document_index_json(
-    payload: dict[str, Any] | None,
-    migrated_refs: dict[str, str | None],
-) -> dict[str, Any] | None:
-    if payload is None:
-        return None
-    updated = dict(payload)
-    for field_name in _STORAGE_REF_FIELDS:
-        updated[field_name] = migrated_refs.get(field_name)
-    return updated
 
 
 def _relative_key_for_ref(paths: Paths, storage_ref: str) -> str:
@@ -246,7 +205,7 @@ def _clean_relative_key(raw_value: str) -> str:
     return PurePosixPath(*parts).as_posix()
 
 
-def _first_non_empty(values: Any) -> str | None:
+def _first_non_empty(values: object) -> str | None:
     for value in values:
         if value is None:
             continue

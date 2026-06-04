@@ -304,6 +304,7 @@ GENERAL_PURPOSE_SUBAGENT: SubAgent = {
 TASK_AUDIT_SCHEMA_VERSION = "openagents-task-audit/v1"
 TASK_AUDIT_DIR = "/mnt/user-data/workspace/.openagents-task-audit/task-calls"
 TASK_AUDIT_TAG_RE = re.compile(r"<openagents_task_audit>\s*(\{.*?\})\s*</openagents_task_audit>", re.DOTALL)
+RUNTIME_TASK_AUDIT_TAG = "openagents_runtime_task_audit"
 TASK_AUDIT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
@@ -455,6 +456,19 @@ def _build_task_tool(  # noqa: C901
             return backend(runtime)  # ty: ignore[call-arg]
         return backend
 
+    def _runtime_owned_writer(resolved_backend: BackendProtocol | None, *, async_mode: bool = False) -> Any:
+        """Find the privileged runtime-owned writer behind logging wrappers."""
+        current = resolved_backend
+        seen: set[int] = set()
+        method_name = "awrite_runtime_owned_file" if async_mode else "write_runtime_owned_file"
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            writer = getattr(current, method_name, None)
+            if callable(writer):
+                return writer
+            current = getattr(current, "__wrapped_backend__", None)
+        return None
+
     def _sanitize_audit_id(value: str | None, tool_call_id: str) -> str:
         """Return a path-safe audit id without deriving any business meaning."""
         candidate = str(value or "").strip()
@@ -571,6 +585,25 @@ def _build_task_tool(  # noqa: C901
                 payload["output_file"] = tag_payload["output_file"]
         return payload
 
+    def _append_runtime_task_audit_tag(message_text: str, audit_payload: dict[str, Any]) -> str:
+        """Expose the runtime-authored audit identity to the parent model.
+
+        The child model may omit or mis-state its optional audit tag. The
+        runtime-owned audit file is the durable proof, so the task result
+        carries only that resolved id/path back to the orchestrator. A separate
+        tag name avoids feeding this metadata back into `_extract_audit_tag`
+        when a nested subagent summarizes another task result.
+        """
+        marker_payload = {
+            "audit_id": audit_payload.get("audit_id"),
+            "audit_file": audit_payload.get("audit_file"),
+            "tool_call_id": audit_payload.get("tool_call_id"),
+            "subagent_type": audit_payload.get("subagent_type"),
+            "status": audit_payload.get("status"),
+        }
+        marker = json.dumps(marker_payload, ensure_ascii=False, separators=(",", ":"))
+        return f"{message_text.rstrip()}\n\n<{RUNTIME_TASK_AUDIT_TAG}>{marker}</{RUNTIME_TASK_AUDIT_TAG}>"
+
     def _write_task_audit(
         *,
         runtime: ToolRuntime,
@@ -600,9 +633,10 @@ def _build_task_tool(  # noqa: C901
         if resolved_backend is None:
             return payload, None, None
         # Task audits are runtime-owned handoff files. They are written via the
-        # same backend as agent-visible files so remote/local/sandbox runs keep
-        # the `/mnt/user-data/...` virtual path contract.
-        write_result = resolved_backend.write(
+        # same path contract, but through a privileged backend hook so normal
+        # model file tools cannot forge or patch audit evidence.
+        privileged_write = _runtime_owned_writer(resolved_backend)
+        write_result = (privileged_write or resolved_backend.write)(
             audit_file,
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         )
@@ -613,7 +647,7 @@ def _build_task_tool(  # noqa: C901
             # audit records to continue.
             audit_file = f"{TASK_AUDIT_DIR}/{audit_id}--{_audit_attempt_suffix(runtime.tool_call_id or '')}.json"
             payload["audit_file"] = audit_file
-            write_result = resolved_backend.write(
+            write_result = (privileged_write or resolved_backend.write)(
                 audit_file,
                 json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             )
@@ -649,7 +683,8 @@ def _build_task_tool(  # noqa: C901
         resolved_backend = _resolve_backend(runtime)
         if resolved_backend is None:
             return payload, None, None
-        write_result = await resolved_backend.awrite(
+        privileged_awrite = _runtime_owned_writer(resolved_backend, async_mode=True)
+        write_result = await (privileged_awrite or resolved_backend.awrite)(
             audit_file,
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         )
@@ -659,7 +694,7 @@ def _build_task_tool(  # noqa: C901
             # payload's audit_id remains the stable value requested by the child.
             audit_file = f"{TASK_AUDIT_DIR}/{audit_id}--{_audit_attempt_suffix(runtime.tool_call_id or '')}.json"
             payload["audit_file"] = audit_file
-            write_result = await resolved_backend.awrite(
+            write_result = await (privileged_awrite or resolved_backend.awrite)(
                 audit_file,
                 json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             )
@@ -724,7 +759,7 @@ def _build_task_tool(  # noqa: C901
                 message=message,
                 files_update=files_update,
             )
-        _, files_update, audit_error = _write_task_audit(
+        audit_payload, files_update, audit_error = _write_task_audit(
             runtime=runtime,
             subagent_type=subagent_type,
             description=description,
@@ -747,7 +782,12 @@ def _build_task_tool(  # noqa: C901
         return Command(
             update={
                 **state_update,
-                "messages": [ToolMessage(message_text, tool_call_id=runtime.tool_call_id)],
+                "messages": [
+                    ToolMessage(
+                        _append_runtime_task_audit_tag(audit_result_text, audit_payload),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
             }
         )
 
@@ -910,7 +950,7 @@ def _build_task_tool(  # noqa: C901
                 message=message,
                 files_update=files_update,
             )
-        _, files_update, audit_error = await _awrite_task_audit(
+        audit_payload, files_update, audit_error = await _awrite_task_audit(
             runtime=runtime,
             subagent_type=effective_subagent_type,
             description=description,
@@ -935,7 +975,12 @@ def _build_task_tool(  # noqa: C901
         return Command(
             update={
                 **state_update,
-                "messages": [ToolMessage(message_text, tool_call_id=runtime.tool_call_id)],
+                "messages": [
+                    ToolMessage(
+                        _append_runtime_task_audit_tag(audit_result_text, audit_payload),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
             }
         )
 

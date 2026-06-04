@@ -7,12 +7,10 @@ import type {
   KnowledgeBaseDeletedResponse,
   KnowledgeBaseListResponse,
   KnowledgeBaseSettingsResponse,
-  KnowledgeDocumentDebugPayload,
   KnowledgeDocumentBuildEventsResponse,
   KnowledgeWorkspaceFileResponse,
   KnowledgeWorkspaceGraphResponse,
   KnowledgeWorkspaceTreeResponse,
-  KnowledgeTreeNode,
 } from "./types";
 
 type KnowledgeErrorPayload = {
@@ -81,7 +79,6 @@ export async function createThreadKnowledgeBase(
   params: {
     name: string;
     description?: string;
-    modelName: string;
     files: File[];
   },
 ): Promise<KnowledgeAcceptedResponse> {
@@ -90,7 +87,6 @@ export async function createThreadKnowledgeBase(
   if (params.description) {
     formData.set("description", params.description);
   }
-  formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
     formData.append("relative_paths", knowledgeUploadRelativePath(file));
@@ -126,7 +122,6 @@ export async function listKnowledgeLibrary(
 export async function createKnowledgeBase(params: {
   name: string;
   description?: string;
-  modelName: string;
   files: File[];
 }): Promise<KnowledgeAcceptedResponse> {
   const formData = new FormData();
@@ -134,7 +129,6 @@ export async function createKnowledgeBase(params: {
   if (params.description) {
     formData.set("description", params.description);
   }
-  formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
     formData.append("relative_paths", knowledgeUploadRelativePath(file));
@@ -150,18 +144,17 @@ export async function createKnowledgeBase(params: {
   );
 }
 
-export async function indexUploadedKnowledgeFiles(
+export async function importUploadedKnowledgeFiles(
   threadId: string,
   params: {
     name?: string;
     description?: string;
     filenames: string[];
-    modelName?: string;
   },
 ): Promise<KnowledgeAcceptedResponse> {
   return fetchKnowledgeJson<KnowledgeAcceptedResponse>(
-    `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/index-uploaded`,
-    "Failed to index uploaded knowledge files",
+    `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/import-uploaded`,
+    "Failed to import uploaded knowledge files",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -169,7 +162,6 @@ export async function indexUploadedKnowledgeFiles(
         name: params.name ?? "",
         description: params.description ?? "",
         filenames: params.filenames,
-        model_name: params.modelName ?? "",
       }),
     },
   );
@@ -246,25 +238,6 @@ export async function clearKnowledgeBases(params?: {
   );
 }
 
-export async function getKnowledgeDocumentTree(
-  threadId: string,
-  documentId: string,
-): Promise<KnowledgeTreeNode[]> {
-  return fetchKnowledgeJson<KnowledgeTreeNode[]>(
-    `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/documents/${documentId}/tree`,
-    "Failed to load document tree",
-  );
-}
-
-export async function getVisibleKnowledgeDocumentTree(
-  documentId: string,
-): Promise<KnowledgeTreeNode[]> {
-  return fetchKnowledgeJson<KnowledgeTreeNode[]>(
-    `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/tree`,
-    "Failed to load document tree",
-  );
-}
-
 export async function listKnowledgeDocumentBuildEvents(
   threadId: string,
   documentId: string,
@@ -281,15 +254,6 @@ export async function listVisibleKnowledgeDocumentBuildEvents(
   return fetchKnowledgeJson<KnowledgeDocumentBuildEventsResponse>(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/build-events`,
     "Failed to load knowledge build events",
-  );
-}
-
-export async function getKnowledgeDocumentDebugPayload(
-  documentId: string,
-): Promise<KnowledgeDocumentDebugPayload> {
-  return fetchKnowledgeJson<KnowledgeDocumentDebugPayload>(
-    `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/debug`,
-    "Failed to load knowledge debug payload",
   );
 }
 

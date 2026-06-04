@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { KnowledgeBase } from "@/core/knowledge/types";
 
 import {
+  knowledgeBaseSourceWorkspaceRefreshKey,
   selectDefaultKnowledgeWorkspacePath,
   shouldDeferKnowledgeSelectionUrlSync,
 } from "./thread-knowledge-management-page";
@@ -28,7 +29,6 @@ function knowledgeBase(
         file_kind: "markdown",
         locator_type: "heading",
         status: "ready",
-        node_count: 1,
       },
     ],
   };
@@ -116,21 +116,80 @@ describe("shouldDeferKnowledgeSelectionUrlSync", () => {
 });
 
 describe("selectDefaultKnowledgeWorkspacePath", () => {
-  it("opens the generated wiki index before raw source files", () => {
+  it("opens a source index when one exists", () => {
     expect(
       selectDefaultKnowledgeWorkspacePath([
-        { name: "source.md", path: "raw/sources/source.md", is_dir: false },
-        { name: "index.md", path: "wiki/index.md", is_dir: false },
+        { name: "case.md", path: "sources/case.md", is_dir: false },
+        { name: "index.md", path: "sources/index.md", is_dir: false },
       ]),
-    ).toBe("wiki/index.md");
+    ).toBe("sources/index.md");
   });
 
-  it("falls back to the first wiki markdown page", () => {
+  it("falls back to the first source markdown file", () => {
     expect(
       selectDefaultKnowledgeWorkspacePath([
         { name: "schema.json", path: "schema.json", is_dir: false },
-        { name: "case.md", path: "wiki/case.md", is_dir: false },
+        { name: "case.md", path: "sources/case.md", is_dir: false },
       ]),
-    ).toBe("wiki/case.md");
+    ).toBe("sources/case.md");
+  });
+});
+
+describe("knowledgeBaseSourceWorkspaceRefreshKey", () => {
+  it("changes when source workspace readiness fields change", () => {
+    const base = knowledgeBase("base-refresh", "owner-1", "doc-refresh");
+    const baseDocument = base.documents[0];
+    if (!baseDocument) {
+      throw new Error("Expected fixture base to contain one document.");
+    }
+    const initialKey = knowledgeBaseSourceWorkspaceRefreshKey(base);
+
+    const processingBase: KnowledgeBase = {
+      ...base,
+      documents: [
+        {
+          ...baseDocument,
+          status: "processing",
+          latest_build_job: {
+            id: "job-1",
+            status: "processing",
+            stage: "workspace",
+            progress_percent: 99,
+            total_steps: 1,
+            completed_steps: 0,
+            updated_at: "2026-06-04T10:00:00Z",
+          },
+        },
+      ],
+    };
+    const processingDocument = processingBase.documents[0];
+    if (!processingDocument?.latest_build_job) {
+      throw new Error("Expected processing fixture to contain a build job.");
+    }
+    expect(knowledgeBaseSourceWorkspaceRefreshKey(processingBase)).not.toBe(
+      initialKey,
+    );
+
+    const readyBase: KnowledgeBase = {
+      ...processingBase,
+      documents: [
+        {
+          ...processingDocument,
+          status: "ready",
+          canonical_storage_path: "s3://knowledge/doc/canonical.md",
+          latest_build_job: {
+            ...processingDocument.latest_build_job,
+            status: "ready",
+            stage: "completed",
+            completed_steps: 1,
+            progress_percent: 100,
+            updated_at: "2026-06-04T10:00:05Z",
+          },
+        },
+      ],
+    };
+    expect(knowledgeBaseSourceWorkspaceRefreshKey(readyBase)).not.toBe(
+      knowledgeBaseSourceWorkspaceRefreshKey(processingBase),
+    );
   });
 });

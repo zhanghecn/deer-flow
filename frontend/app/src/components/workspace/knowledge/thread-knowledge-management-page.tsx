@@ -79,13 +79,12 @@ import {
   isKnowledgeDocumentBuildActive,
 } from "@/core/knowledge/documents";
 import {
-  useKnowledgeDocumentDebug,
   useKnowledgeLibrary,
+  useVisibleKnowledgeDocumentText,
   useKnowledgeWorkspaceFile,
   useKnowledgeWorkspaceGraph,
   useKnowledgeWorkspaceTree,
   useVisibleKnowledgeDocumentBuildEvents,
-  useVisibleKnowledgeDocumentTree,
 } from "@/core/knowledge/hooks";
 import type {
   KnowledgeBase,
@@ -93,12 +92,10 @@ import type {
   KnowledgeWorkspaceFileNode,
   KnowledgeWorkspaceGraphNode,
   KnowledgeWorkspaceGraphResponse,
-  KnowledgeTreeNode,
 } from "@/core/knowledge/types";
 import { streamdownPlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
 
-import { JsonInspector } from "./json-inspector";
 import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
 import { KnowledgeBaseBuildSummary } from "./knowledge-build-summary";
 import {
@@ -118,7 +115,6 @@ import {
   ExplorerEmptyState,
   KnowledgePreviewPanel,
 } from "./knowledge-preview-panel";
-import { locatorLabel, TreeNodeView } from "./tree-node-view";
 
 type KnowledgeOwnerGroup = {
   ownerId: string;
@@ -228,22 +224,6 @@ function toLibraryDocumentView(
   };
 }
 
-function buildPreviewFocusFromNode(
-  node: KnowledgeTreeNode,
-  t: KnowledgeI18n,
-): KnowledgePreviewFocus {
-  return {
-    nodeId: node.node_id,
-    title: node.title,
-    locatorLabel: `${node.title} · ${locatorLabel(node, t)}`,
-    page: node.page_start,
-    pageEnd: node.page_end,
-    heading: node.heading_slug,
-    line: node.line_start,
-    lineEnd: node.line_end,
-  };
-}
-
 function flattenWorkspaceFiles(nodes: KnowledgeWorkspaceFileNode[]) {
   const files: KnowledgeWorkspaceFileNode[] = [];
   const visit = (node: KnowledgeWorkspaceFileNode) => {
@@ -257,6 +237,25 @@ function flattenWorkspaceFiles(nodes: KnowledgeWorkspaceFileNode[]) {
   return files;
 }
 
+export function knowledgeBaseSourceWorkspaceRefreshKey(
+  knowledgeBase: Pick<KnowledgeBase, "documents"> | null | undefined,
+) {
+  if (!knowledgeBase) {
+    return "";
+  }
+  return knowledgeBase.documents
+    .map((document) =>
+      [
+        document.id,
+        getKnowledgeDocumentStatus(document),
+        document.latest_build_job?.stage ?? "",
+        document.latest_build_job?.updated_at ?? "",
+        document.canonical_storage_path ?? "",
+      ].join(":"),
+    )
+    .join("|");
+}
+
 export function selectDefaultKnowledgeWorkspacePath(
   files: KnowledgeWorkspaceFileNode[],
 ) {
@@ -265,10 +264,9 @@ export function selectDefaultKnowledgeWorkspacePath(
     path: file.path.replace(/^\.\//, ""),
   }));
   const exactPreferredPath = [
-    "wiki/index.md",
-    "index.md",
-    "purpose.md",
-    "schema.md",
+    "sources/index.md",
+    "sources/readme.md",
+    "sources/README.md",
   ]
     .map(
       (path) =>
@@ -281,12 +279,12 @@ export function selectDefaultKnowledgeWorkspacePath(
     return exactPreferredPath.path;
   }
 
-  const firstWikiPage =
+  const firstSourceFile =
     normalizedFiles.find(
-      ({ path }) => path.startsWith("wiki/") && path.endsWith(".md"),
+      ({ path }) => path.startsWith("sources/") && path.endsWith(".md"),
     )?.file ?? null;
-  if (firstWikiPage) {
-    return firstWikiPage.path;
+  if (firstSourceFile) {
+    return firstSourceFile.path;
   }
 
   return (
@@ -305,15 +303,7 @@ function workspaceFileLabel(path: string | null | undefined) {
 }
 
 const GRAPH_NODE_TYPE_COLORS: Record<string, string> = {
-  entity: "#60a5fa",
-  concept: "#c084fc",
   source: "#fb923c",
-  query: "#4ade80",
-  synthesis: "#f87171",
-  overview: "#facc15",
-  comparison: "#2dd4bf",
-  index: "#a78bfa",
-  log: "#38bdf8",
   other: "#94a3b8",
 };
 
@@ -332,13 +322,6 @@ const GRAPH_COMMUNITY_COLORS = [
   "#fbbf24",
 ];
 
-const GRAPH_STRUCTURAL_IDS = new Set([
-  "index",
-  "overview",
-  "log",
-  "schema",
-  "purpose",
-]);
 const GRAPH_BASE_NODE_SIZE = 4;
 const GRAPH_MAX_NODE_SIZE = 16;
 
@@ -347,7 +330,6 @@ type KnowledgeGraphColorMode = "type" | "community";
 type KnowledgeGraphFilterState = {
   hiddenTypes: Set<string>;
   hiddenNodeIds: Set<string>;
-  hideStructural: boolean;
   hideIsolated: boolean;
   maxLinks?: number;
 };
@@ -388,28 +370,10 @@ function mixGraphColor(color1: string, color2: string, ratio: number) {
   return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
-function isStructuralGraphNode(node: KnowledgeWorkspaceGraphNode) {
-  if (GRAPH_STRUCTURAL_IDS.has(node.id.toLowerCase())) {
-    return true;
-  }
-  if (node.type === "overview") {
-    return true;
-  }
-  const path = node.path.replaceAll("\\", "/").toLowerCase();
-  return (
-    path.endsWith("/wiki/index.md") ||
-    path.endsWith("/wiki/overview.md") ||
-    path.endsWith("/wiki/log.md") ||
-    path.endsWith("/purpose.md") ||
-    path.endsWith("/schema.md")
-  );
-}
-
 function defaultKnowledgeGraphFilters(): KnowledgeGraphFilterState {
   return {
     hiddenTypes: new Set(),
     hiddenNodeIds: new Set(),
-    hideStructural: true,
     hideIsolated: false,
   };
 }
@@ -423,7 +387,6 @@ function filterKnowledgeGraph(
     if (
       filters.hiddenNodeIds.has(node.id) ||
       filters.hiddenTypes.has(node.type) ||
-      (filters.hideStructural && isStructuralGraphNode(node)) ||
       (filters.hideIsolated && node.link_count <= 0) ||
       (filters.maxLinks !== undefined && node.link_count > filters.maxLinks)
     ) {
@@ -441,7 +404,6 @@ function filterKnowledgeGraph(
 
 function hasActiveKnowledgeGraphFilters(filters: KnowledgeGraphFilterState) {
   return (
-    filters.hideStructural ||
     filters.hideIsolated ||
     filters.hiddenTypes.size > 0 ||
     filters.hiddenNodeIds.size > 0 ||
@@ -635,7 +597,7 @@ function KnowledgeWorkspaceReader({
   );
 }
 
-function KnowledgeWikiWorkspace({
+function KnowledgeSourceWorkspace({
   workspaceTreeNodes,
   workspaceTreeLoading,
   workspaceTreeError,
@@ -782,8 +744,8 @@ function KnowledgeGraphLoader({
       });
     }
 
-    // This mirrors llm-wiki's ForceAtlas2 pass: graph shape, not list order,
-    // determines the rendered neighborhood positions.
+    // Graph shape, not list order, determines the rendered neighborhood
+    // positions.
     if (needsLayout && nodes.length > 1) {
       const settings = forceAtlas2.inferSettings(sigmaGraph);
       forceAtlas2.assign(sigmaGraph, {
@@ -957,13 +919,13 @@ function KnowledgeGraphMap({
   graph,
   isLoading,
   error,
-  onOpenWikiPath,
+  onOpenSourcePath,
   t,
 }: {
   graph: KnowledgeWorkspaceGraphResponse | undefined;
   isLoading: boolean;
   error: Error | null;
-  onOpenWikiPath: (path: string) => void;
+  onOpenSourcePath: (path: string) => void;
   t: KnowledgeI18n;
 }) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -1284,19 +1246,6 @@ function KnowledgeGraphMap({
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={filters.hideStructural}
-                    onChange={(event) =>
-                      setFilters((current) => ({
-                        ...current,
-                        hideStructural: event.target.checked,
-                      }))
-                    }
-                  />
-                  <span>{t.knowledge.graphHideStructural}</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
                     checked={filters.hideIsolated}
                     onChange={(event) =>
                       setFilters((current) => ({
@@ -1510,10 +1459,10 @@ function KnowledgeGraphMap({
                 type="button"
                 size="sm"
                 className="mt-3 h-8 w-full rounded-md text-xs"
-                onClick={() => onOpenWikiPath(selectedNode.path)}
+                onClick={() => onOpenSourcePath(selectedNode.path)}
               >
                 <BookOpenIcon className="size-4" />
-                {t.knowledge.graphOpenInWiki}
+                {t.knowledge.graphOpenSource}
               </Button>
             </div>
           ) : (
@@ -1790,14 +1739,14 @@ function KnowledgeBaseWorkbench({
             type="button"
             className={cn(
               "flex items-center gap-2 px-3 text-sm transition-colors",
-              activeTab === "wiki"
+              activeTab === "source"
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
             )}
-            onClick={() => onActiveTabChange("wiki")}
+            onClick={() => onActiveTabChange("source")}
           >
             <BookOpenIcon className="size-4" />
-            {t.knowledge.wikiWorkspaceTab}
+            {t.knowledge.sourceWorkspaceTab}
           </button>
           <button
             type="button"
@@ -1814,14 +1763,14 @@ function KnowledgeBaseWorkbench({
           </button>
         </div>
         <div className="text-muted-foreground min-w-0 truncate text-sm">
-          {activeTab === "wiki"
+          {activeTab === "source"
             ? (selectedWorkspacePath ?? t.knowledge.workspaceDefaultTitle)
             : t.knowledge.graphNodeCount(graph?.nodes.length ?? 0)}
         </div>
       </div>
 
-      {activeTab === "wiki" ? (
-        <KnowledgeWikiWorkspace
+      {activeTab === "source" ? (
+        <KnowledgeSourceWorkspace
           workspaceTreeNodes={workspaceTreeNodes}
           workspaceTreeLoading={workspaceTreeLoading}
           workspaceTreeError={workspaceTreeError}
@@ -1840,9 +1789,9 @@ function KnowledgeBaseWorkbench({
           graph={graph}
           isLoading={graphLoading}
           error={graphError}
-          onOpenWikiPath={(path) => {
+          onOpenSourcePath={(path) => {
             onSelectWorkspacePath(path);
-            onActiveTabChange("wiki");
+            onActiveTabChange("source");
           }}
           t={t}
         />
@@ -1875,12 +1824,11 @@ export function ThreadKnowledgeManagementPage() {
   const [previewFocus, setPreviewFocus] =
     useState<KnowledgePreviewFocus | null>(null);
   const [baseWorkbenchTab, setBaseWorkbenchTab] =
-    useState<BaseWorkbenchTab>("wiki");
+    useState<BaseWorkbenchTab>("source");
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<
     string | null
   >(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState("overview");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [pendingUploadedBaseId, setPendingUploadedBaseId] = useState<
     string | null
@@ -2165,7 +2113,7 @@ export function ThreadKnowledgeManagementPage() {
 
   useEffect(() => {
     setDetailOpen(false);
-    setBaseWorkbenchTab("wiki");
+    setBaseWorkbenchTab("source");
     setSelectedWorkspacePath(null);
   }, [selectedBaseId]);
 
@@ -2193,27 +2141,54 @@ export function ThreadKnowledgeManagementPage() {
       return;
     }
     setPreviewFocus(null);
-    setDetailTab("overview");
     setPreviewMode(
       selectedDocument.locator_type === "heading" ? "canonical" : "preview",
     );
   }, [selectedDocument?.id, selectedDocument?.locator_type]);
 
-  const treeQuery = useVisibleKnowledgeDocumentTree(
-    selectedDocument?.id,
-    detailOpen && selectedDocumentReady,
-  );
   const eventsQuery = useVisibleKnowledgeDocumentBuildEvents(
     detailOpen ? selectedDocument : null,
   );
-  const debugQuery = useKnowledgeDocumentDebug(
-    selectedDocument?.id,
-    detailOpen && Boolean(selectedDocument),
-  );
+  const canonicalTextQuery = useVisibleKnowledgeDocumentText({
+    documentId: selectedDocument?.id,
+    enabled: detailOpen && selectedDocumentReady,
+    variant: "canonical",
+  });
   const workspaceTreeQuery = useKnowledgeWorkspaceTree(
     selectedBase?.id,
     Boolean(selectedBase),
   );
+  const selectedBaseSourceWorkspaceRefreshKey =
+    knowledgeBaseSourceWorkspaceRefreshKey(selectedBase);
+  useEffect(() => {
+    if (!selectedBase?.id || !selectedBaseSourceWorkspaceRefreshKey) {
+      return;
+    }
+    // A source workspace can be queried while the build is still queued or
+    // processing, producing a real but temporary empty tree. Once document
+    // readiness changes, invalidate that early snapshot so users see the
+    // generated `sources/*.md` files without waiting for the stale-time window.
+    void queryClient.invalidateQueries({
+      queryKey: ["knowledge-workspace-tree", selectedBase.id],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["knowledge-workspace-graph", selectedBase.id],
+    });
+    if (selectedWorkspacePath) {
+      void queryClient.invalidateQueries({
+        queryKey: [
+          "knowledge-workspace-file",
+          selectedBase.id,
+          selectedWorkspacePath,
+        ],
+      });
+    }
+  }, [
+    queryClient,
+    selectedBase?.id,
+    selectedBaseSourceWorkspaceRefreshKey,
+    selectedWorkspacePath,
+  ]);
   const workspaceFiles = useMemo(
     () => flattenWorkspaceFiles(workspaceTreeQuery.data?.tree ?? []),
     [workspaceTreeQuery.data?.tree],
@@ -2262,11 +2237,7 @@ export function ThreadKnowledgeManagementPage() {
     if (!selectedDocument) {
       return null;
     }
-    const firstNode = treeQuery.data?.[0];
     if (selectedDocument.locator_type === "heading") {
-      if (firstNode) {
-        return buildPreviewFocusFromNode(firstNode, t);
-      }
       return {
         locatorLabel: `${t.knowledge.lineLabel} 1`,
         line: 1,
@@ -2278,11 +2249,8 @@ export function ThreadKnowledgeManagementPage() {
         page: 1,
       };
     }
-    if (firstNode) {
-      return buildPreviewFocusFromNode(firstNode, t);
-    }
     return null;
-  }, [previewFocus, selectedDocument, t, treeQuery.data]);
+  }, [previewFocus, selectedDocument, t]);
 
   const totalDocumentCount = documents.length;
   const readyCount = documents.filter(
@@ -2431,9 +2399,6 @@ export function ThreadKnowledgeManagementPage() {
         queryClient.invalidateQueries({
           queryKey: ["thread-knowledge-bases", threadId],
         }),
-        queryClient.invalidateQueries({
-          queryKey: ["knowledge-document-debug", selectedDocumentId],
-        }),
       ]);
     } catch (error) {
       toast.error(
@@ -2441,14 +2406,6 @@ export function ThreadKnowledgeManagementPage() {
       );
     } finally {
       setSettingsBusyBaseId(null);
-    }
-  };
-
-  const handleNodeFocus = (node: KnowledgeTreeNode) => {
-    const nextFocus = buildPreviewFocusFromNode(node, t);
-    setPreviewFocus(nextFocus);
-    if (nextFocus.page == null) {
-      setPreviewMode("canonical");
     }
   };
 
@@ -3188,7 +3145,7 @@ export function ThreadKnowledgeManagementPage() {
                     <KnowledgePreviewPanel
                       document={selectedDocument}
                       threadId={threadId}
-                      canonicalMarkdown={debugQuery.data?.canonical_markdown}
+                      canonicalMarkdown={canonicalTextQuery.data}
                       focus={effectivePreviewFocus}
                       mode={previewMode}
                       onModeChange={setPreviewMode}
@@ -3222,9 +3179,6 @@ export function ThreadKnowledgeManagementPage() {
                             {t.knowledge.pageCount(selectedDocument.page_count)}
                           </Badge>
                         ) : null}
-                        <Badge variant="outline">
-                          {t.knowledge.nodeCount(selectedDocument.node_count)}
-                        </Badge>
                       </div>
                       <p className="text-muted-foreground mt-3 text-sm leading-6">
                         {selectedDocument.doc_description ??
@@ -3233,23 +3187,13 @@ export function ThreadKnowledgeManagementPage() {
                       </p>
                     </div>
 
-                    <Tabs
-                      value={detailTab}
-                      onValueChange={setDetailTab}
-                      className="flex min-h-0 flex-1 flex-col"
-                    >
-                      <TabsList className="bg-muted/60 mx-4 mt-4 grid h-auto grid-cols-4 rounded-lg p-1">
+                    <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
+                      <TabsList className="bg-muted/60 mx-4 mt-4 grid h-auto grid-cols-2 rounded-lg p-1">
                         <TabsTrigger value="overview" className="rounded-xl">
                           {t.knowledge.overviewTab}
                         </TabsTrigger>
-                        <TabsTrigger value="tree" className="rounded-xl">
-                          {t.knowledge.treeTab}
-                        </TabsTrigger>
                         <TabsTrigger value="events" className="rounded-xl">
                           {t.knowledge.eventsTab}
-                        </TabsTrigger>
-                        <TabsTrigger value="index" className="rounded-xl">
-                          {t.knowledge.indexTab}
                         </TabsTrigger>
                       </TabsList>
 
@@ -3370,45 +3314,6 @@ export function ThreadKnowledgeManagementPage() {
                       </TabsContent>
 
                       <TabsContent
-                        value="tree"
-                        className="mt-4 min-h-0 flex-1 px-4 pb-4"
-                      >
-                        <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
-                          <ScrollArea className="h-full">
-                            <div className="w-full min-w-0 space-y-4 p-4">
-                              {getKnowledgeDocumentStatus(selectedDocument) !==
-                              "ready" ? (
-                                <div className="text-muted-foreground text-sm">
-                                  {t.knowledge.treePending}
-                                </div>
-                              ) : treeQuery.isLoading ? (
-                                <div className="text-muted-foreground text-sm">
-                                  {t.knowledge.loadingTree}
-                                </div>
-                              ) : treeQuery.error instanceof Error ? (
-                                <div className="text-sm text-red-500">
-                                  {treeQuery.error.message}
-                                </div>
-                              ) : (treeQuery.data?.length ?? 0) === 0 ? (
-                                <div className="text-muted-foreground text-sm">
-                                  {t.knowledge.emptyTree}
-                                </div>
-                              ) : (
-                                treeQuery.data?.map((node) => (
-                                  <TreeNodeView
-                                    key={node.node_id}
-                                    node={node}
-                                    activeNodeId={effectivePreviewFocus?.nodeId}
-                                    onSelectNode={handleNodeFocus}
-                                  />
-                                ))
-                              )}
-                            </div>
-                          </ScrollArea>
-                        </div>
-                      </TabsContent>
-
-                      <TabsContent
                         value="events"
                         className="mt-4 min-h-0 flex-1 px-4 pb-4"
                       >
@@ -3469,32 +3374,6 @@ export function ThreadKnowledgeManagementPage() {
                         </div>
                       </TabsContent>
 
-                      <TabsContent
-                        value="index"
-                        className="mt-4 min-h-0 flex-1 px-4 pb-4"
-                      >
-                        <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
-                          <ScrollArea className="h-full">
-                            <div className="p-4">
-                              {debugQuery.isLoading ? (
-                                <div className="text-muted-foreground text-sm">
-                                  {t.knowledge.loadingDebug}
-                                </div>
-                              ) : debugQuery.error instanceof Error ? (
-                                <div className="text-sm text-red-500">
-                                  {debugQuery.error.message}
-                                </div>
-                              ) : (
-                                <JsonInspector
-                                  value={
-                                    debugQuery.data?.document_index_json ?? {}
-                                  }
-                                />
-                              )}
-                            </div>
-                          </ScrollArea>
-                        </div>
-                      </TabsContent>
                     </Tabs>
                   </div>
                 </div>

@@ -67,7 +67,8 @@ def _build_knowledge_binding_prompt(workspaces: list[KnowledgeWorkspaceRecord]) 
         ),
         (
             "  <usage>Attached knowledge is mounted as read-only files at each mount_path. "
-            "Use only these mount_path values when this turn needs attached knowledge; otherwise ignore them.</usage>"
+            "Use only these mount_path values when this turn needs attached knowledge; source files live under sources/. "
+            "Otherwise ignore them.</usage>"
         ),
     ]
     if not ready_workspaces:

@@ -17,7 +17,6 @@ function createDocument(
     file_kind: "markdown",
     locator_type: "heading",
     status: "ready",
-    node_count: 1,
     ...overrides,
   };
 }

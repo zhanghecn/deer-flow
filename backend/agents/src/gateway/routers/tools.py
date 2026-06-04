@@ -158,8 +158,6 @@ def _group_for_builtin_tool(name: str) -> str:
         return "output"
     if name == "question":
         return "interaction"
-    if name.startswith("get_document_"):
-        return "knowledge"
     if name in {
         "install_skill_from_registry",
         "save_agent_to_store",

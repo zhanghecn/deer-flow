@@ -2,12 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import {
-  getKnowledgeDocumentDebugPayload,
-  getKnowledgeDocumentTree,
   getKnowledgeWorkspaceFile,
   getKnowledgeWorkspaceGraph,
   getKnowledgeWorkspaceTree,
-  getVisibleKnowledgeDocumentTree,
   listKnowledgeDocumentBuildEvents,
   listKnowledgeLibrary,
   listVisibleKnowledgeDocumentBuildEvents,
@@ -62,33 +59,6 @@ export function useKnowledgeLibrary(
   };
 }
 
-export function useKnowledgeDocumentTree(
-  threadId: string | undefined,
-  documentId: string | undefined,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: ["knowledge-document-tree", threadId, documentId],
-    queryFn: () => getKnowledgeDocumentTree(threadId ?? "", documentId ?? ""),
-    enabled: Boolean(threadId && documentId && enabled),
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useVisibleKnowledgeDocumentTree(
-  documentId: string | undefined,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: ["visible-knowledge-document-tree", documentId],
-    queryFn: () => getVisibleKnowledgeDocumentTree(documentId ?? ""),
-    enabled: Boolean(documentId && enabled),
-    staleTime: 30 * 1000,
-    refetchOnWindowFocus: false,
-  });
-}
-
 export function useKnowledgeDocumentBuildEvents(
   threadId: string | undefined,
   document: KnowledgeDocument | null | undefined,
@@ -124,19 +94,6 @@ export function useVisibleKnowledgeDocumentBuildEvents(
       }
       return false;
     },
-  });
-}
-
-export function useKnowledgeDocumentDebug(
-  documentId: string | undefined,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: ["knowledge-document-debug", documentId],
-    queryFn: () => getKnowledgeDocumentDebugPayload(documentId ?? ""),
-    enabled: Boolean(documentId && enabled),
-    staleTime: 0,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -215,4 +172,28 @@ export function useVisibleKnowledgeDocumentObjectUrl({
     isLoading,
     error,
   };
+}
+
+export function useVisibleKnowledgeDocumentText({
+  documentId,
+  enabled = true,
+  variant = "canonical",
+}: {
+  documentId: string | undefined;
+  enabled?: boolean;
+  variant?: "markdown" | "canonical" | "source";
+}) {
+  return useQuery({
+    queryKey: ["visible-knowledge-document-text", documentId, variant],
+    queryFn: async () => {
+      const blob = await loadVisibleKnowledgeDocumentBlob(
+        documentId ?? "",
+        variant,
+      );
+      return await blob.text();
+    },
+    enabled: Boolean(documentId && enabled),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 }

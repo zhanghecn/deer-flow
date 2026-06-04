@@ -5,7 +5,7 @@
 This spec is for any change involving:
 
 - knowledge-base ingestion
-- compiled workspace file mounting and `glob` / `grep` / `read_file` retrieval
+- source workspace file mounting and `glob` / `grep` / `read_file` retrieval
 - citations / preview jump
 - inline image evidence
 - knowledge-base selector and management UI
@@ -55,7 +55,7 @@ Still from the real app flow:
    - contains grounded citations
    - citations match the returned source
    - image evidence appears naturally when the document meaning depends on images
-   - broad questions first discover candidate compiled files with `glob`
+   - broad questions first discover candidate `sources/**/*.md` files with `glob`
    - exact-source questions use `grep` line hits and `read_file` pagination before answering
 5. In the same KB-attached thread, ask at least one clearly non-KB question.
 6. Verify the non-KB turn:
@@ -78,7 +78,7 @@ Required audit coverage:
    - `read_file` with bounded `offset` / `limit` around relevant lines
    - no preliminary knowledge-document listing tool call is required when the prompt already injected attached workspace metadata and mount paths
 3. Confirm it did not regress to host-path reads, object-store key access, `/large_tool_results`, or shell crawling.
-4. Confirm KB-only guardrails are scoped narrowly enough that a non-KB turn on the same thread is not diverted into KB tools, even when the user did not type an explicit `@document` reference.
+4. Confirm KB-only guardrails are scoped narrowly enough that a non-KB turn on the same thread is not diverted into KB tools.
 5. Confirm the final answer matches the evidence bundle used in the same turn.
 6. If behavior is wrong, record the exact failure mode rather than guessing.
 
@@ -99,13 +99,13 @@ When the task touches ingestion or preview:
 - `markdown`
 - `pdf`
 - `docx` or `doc`
-- `pptx` when upload/compile format support changes
+- `pptx` when upload/source-conversion format support changes
 
-When the task touches llm_wiki workspace compilation:
+When the task touches source workspace generation:
 
-- multi-source base where two files generate or update the same entity/concept page
-- re-index of a source that previously generated shared wiki pages
-- verify stale source contribution cleanup does not delete pages still sourced by another document
+- multi-source base where two files produce distinct `sources/*.md` entries
+- re-prepare of a source that previously had deprecated `wiki/**`, `.llm-wiki/**`, or `raw/sources/.cache/**`
+- verify stale generated/cache artifacts are removed and current `sources/*.md` files are preserved
 
 When the task touches image evidence:
 

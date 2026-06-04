@@ -692,11 +692,6 @@ export function InputBox({
         open={knowledgeUploadOpen}
         onOpenChange={setKnowledgeUploadOpen}
         ensureThreadExists={ensureThreadExists}
-        defaultModelName={
-          typeof context.model_name === "string"
-            ? context.model_name
-            : undefined
-        }
       />
       {extraHeader && (
         <div className="absolute top-0 right-0 left-0 z-10">

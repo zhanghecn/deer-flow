@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,62 +9,6 @@ import (
 	"github.com/openagents/gateway/internal/knowledgeasset"
 	"github.com/openagents/gateway/internal/repository"
 )
-
-func TestDebugCanonicalStorageRef(t *testing.T) {
-	t.Run("prefers canonical artifact", func(t *testing.T) {
-		canonical := "knowledge/base/doc/canonical.md"
-		markdown := "knowledge/base/doc/companion.md"
-		source := "knowledge/base/doc/source.docx"
-
-		got := debugCanonicalStorageRef(repository.KnowledgeDocumentRecord{
-			FileKind:             "docx",
-			CanonicalStoragePath: &canonical,
-			MarkdownStoragePath:  &markdown,
-			SourceStoragePath:    &source,
-		})
-		if got != canonical {
-			t.Fatalf("debugCanonicalStorageRef() = %v, want %q", got, canonical)
-		}
-	})
-
-	t.Run("falls back to markdown companion for binary document", func(t *testing.T) {
-		markdown := "knowledge/base/doc/companion.md"
-		source := "knowledge/base/doc/source.pptx"
-
-		got := debugCanonicalStorageRef(repository.KnowledgeDocumentRecord{
-			FileKind:            "pptx",
-			MarkdownStoragePath: &markdown,
-			SourceStoragePath:   &source,
-		})
-		if got != markdown {
-			t.Fatalf("debugCanonicalStorageRef() = %v, want %q", got, markdown)
-		}
-	})
-
-	t.Run("does not treat binary source as canonical fallback", func(t *testing.T) {
-		source := "knowledge/base/doc/source.xlsx"
-
-		got := debugCanonicalStorageRef(repository.KnowledgeDocumentRecord{
-			FileKind:          "xlsx",
-			SourceStoragePath: &source,
-		})
-		if got != "" {
-			t.Fatalf("debugCanonicalStorageRef() = %q, want empty", got)
-		}
-	})
-
-	t.Run("allows markdown source fallback", func(t *testing.T) {
-		source := "knowledge/base/doc/source.md"
-
-		got := debugCanonicalStorageRef(repository.KnowledgeDocumentRecord{
-			FileKind:          "markdown",
-			SourceStoragePath: &source,
-		})
-		if got != source {
-			t.Fatalf("debugCanonicalStorageRef() = %v, want %q", got, source)
-		}
-	})
-}
 
 func TestResolveKnowledgeAssetRef(t *testing.T) {
 	t.Setenv("KNOWLEDGE_OBJECT_STORE", "filesystem")
@@ -241,48 +184,20 @@ func TestFilterKnowledgeBasesForReadyDocuments(t *testing.T) {
 	}
 }
 
-func TestPreferredKnowledgeCompileModelNameUsesFlashKeyword(t *testing.T) {
-	displayName := "Vendor Flash"
-	records := []repository.ModelRecord{
-		{
-			Name:       "kimi-k2.6",
-			Provider:   "anthropic",
-			ConfigJSON: json.RawMessage(`{"model":"kimi-k2.6"}`),
-		},
-		{
-			Name:        "vendor-fast",
-			DisplayName: &displayName,
-			Provider:    "anthropic",
-			ConfigJSON:  json.RawMessage(`{"model":"vendor-fast"}`),
-		},
-		{
-			Name:       "deepseek-v4-flash",
-			Provider:   "anthropic",
-			ConfigJSON: json.RawMessage(`{"model":"deepseek-v4-flash"}`),
-		},
-	}
-
-	got := preferredKnowledgeCompileModelName(records)
-
-	if got != "deepseek-v4-flash" {
-		t.Fatalf("preferredKnowledgeCompileModelName() = %q, want DeepSeek flash priority", got)
-	}
-}
-
-func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
+func TestWorkspaceGraphHelpersUseSourceMarkdownRelationshipSignals(t *testing.T) {
 	sources := workspaceMarkdownSources("---\nsources:\n  - contract.pdf\n  - \"risk.md\"\n---\n# 合同")
 	if strings.Join(sources, ",") != "contract.pdf,risk.md" {
 		t.Fatalf("workspaceMarkdownSources() = %+v, want parsed source frontmatter", sources)
 	}
-	links := workspaceWikiLinks("---\nrelated: [解除权, \"wiki/concepts/通知义务.md\"]\n---\n# 合同\n正文 [[违约责任]]")
+	links := workspaceMarkdownLinks("---\nrelated: [解除权, \"sources/通知义务.md\"]\n---\n# 合同\n正文 [[违约责任]]")
 	if strings.Join(links, ",") != "违约责任,解除权,通知义务" {
-		t.Fatalf("workspaceWikiLinks() = %+v, want body wikilinks plus related frontmatter targets", links)
+		t.Fatalf("workspaceMarkdownLinks() = %+v, want body bracket links plus related frontmatter targets", links)
 	}
 
 	a := &knowledgeWorkspaceGraphRawNode{
 		id:      "breach",
 		label:   "违约责任",
-		kind:    "concept",
+		kind:    "source",
 		sources: []string{"contract.pdf"},
 		out:     map[string]bool{"termination": true, "notice": true},
 		in:      map[string]bool{},
@@ -290,7 +205,7 @@ func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
 	b := &knowledgeWorkspaceGraphRawNode{
 		id:      "termination",
 		label:   "解除权",
-		kind:    "concept",
+		kind:    "source",
 		sources: []string{"contract.pdf"},
 		out:     map[string]bool{"notice": true},
 		in:      map[string]bool{"breach": true},
@@ -298,7 +213,7 @@ func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
 	notice := &knowledgeWorkspaceGraphRawNode{
 		id:      "notice",
 		label:   "通知义务",
-		kind:    "entity",
+		kind:    "source",
 		sources: []string{"contract.pdf"},
 		out:     map[string]bool{},
 		in:      map[string]bool{"breach": true, "termination": true},
@@ -310,7 +225,7 @@ func TestWorkspaceGraphHelpersMatchLLMWikiRelevanceSignals(t *testing.T) {
 		"notice":      notice,
 	})
 
-	if got <= 8.0 {
+	if got <= 7.0 {
 		t.Fatalf("calculateWorkspaceGraphRelevance() = %.3f, want direct/source/common-neighbor weighted score", got)
 	}
 	resolved := resolveWorkspaceGraphTarget("解除权", map[string]*knowledgeWorkspaceGraphRawNode{

@@ -321,7 +321,7 @@ console.log(result.messages);
 取消一个正在执行的 public API turn。用户可见的“停止”按钮应调用这个接口，
 不要只依赖关闭浏览器流式连接来表达取消。
 
-服务端会根据 turn 所属 thread 查找活跃的 LangGraph run，执行 interrupt，
+服务端会根据 turn 所属 thread 查找活跃的 LangGraph run，回滚正在执行的 run，
 并写入终态为 `canceled` 的 turn 快照。成功响应与 `GET /v1/turns/{id}` 的
 快照结构一致。
 

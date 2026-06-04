@@ -100,7 +100,7 @@ Critical agent protocol rules for future work:
 - The primary agent-facing KB prompt is only middleware-injected workspace metadata with `mount_path` values. Keep it concise; do not add long tool recipes to the runtime prompt.
 - Knowledge workspace tree and graph APIs are management / audit surfaces. They are not the default first step for answering knowledge questions.
 - Legacy document-level PageTree tools have been removed from the agent-facing tool registry. Do not reintroduce them as opt-in compatibility tools.
-- Compiled workspace files under Knowledge Asset Store are mounted read-only at `/mnt/user-data/knowledge/...` and are the current agent retrieval source of truth. PageTree-derived metadata may remain as ingest/debug data, but it is not an agent answer protocol.
+- Source workspace files under Knowledge Asset Store are mounted read-only at `/mnt/user-data/knowledge/.../sources/` and are the current agent retrieval source of truth. Do not keep PageTree-derived metadata as an ingest/debug side channel.
 - KB retrieval stays on the same rule everywhere: attached workspace metadata first, then normal filesystem reads inside the mounted package. Do not reintroduce direct PageTree retrieval or semantic KB tools as the default first step.
 - KB knowledge guidance is prompt-first. Do not reintroduce hidden post-answer retries once visible streaming has started.
 - Keep the global tool registry stable for knowledge turns. Do not reintroduce tool-call blocking heuristics for generic tools; prefer prompt guidance plus trace-based verification.

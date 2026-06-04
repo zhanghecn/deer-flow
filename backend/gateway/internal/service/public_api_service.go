@@ -1845,9 +1845,9 @@ func (s *PublicAPIService) cancelLangGraphRunsForThread(
 	ctx context.Context,
 	invocation *model.PublicAPIInvocation,
 ) error {
-	// Public cancel mirrors the workspace stop contract: resolve the active
-	// LangGraph runs by explicit thread id, then ask LangGraph to interrupt and
-	// wait so the thread is settled before `/v1/turns` accepts the next message.
+	// Public SDK cancel is a hard user stop, not a resumable HITL pause. Use
+	// LangGraph rollback so the canceled run cannot keep committing checkpoint
+	// state after the public turn has already been stored as canceled.
 	activeRuns := make([]langGraphRunRecord, 0, 2)
 	for _, status := range []string{"running", "pending"} {
 		runs, err := s.listLangGraphRuns(ctx, invocation, status)
@@ -1933,7 +1933,7 @@ func (s *PublicAPIService) cancelLangGraphRun(
 ) error {
 	query := url.Values{}
 	query.Set("wait", "true")
-	query.Set("action", "interrupt")
+	query.Set("action", "rollback")
 	endpoint := s.langGraphURL +
 		"/threads/" + url.PathEscape(invocation.ThreadID) +
 		"/runs/" + url.PathEscape(runID) +

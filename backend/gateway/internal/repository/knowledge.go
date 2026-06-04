@@ -19,7 +19,6 @@ type KnowledgeBuildJobRecord struct {
 	ProgressPercent int        `json:"progress_percent"`
 	TotalSteps      int        `json:"total_steps"`
 	CompletedSteps  int        `json:"completed_steps"`
-	ModelName       *string    `json:"model_name,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 	CreatedAt       *time.Time `json:"created_at,omitempty"`
@@ -53,7 +52,6 @@ type KnowledgeDocumentRecord struct {
 	QualityMetadata      map[string]any           `json:"quality_metadata,omitempty"`
 	Error                *string                  `json:"error,omitempty"`
 	PageCount            *int                     `json:"page_count,omitempty"`
-	NodeCount            int                      `json:"node_count"`
 	SourceStoragePath    *string                  `json:"source_storage_path,omitempty"`
 	MarkdownStoragePath  *string                  `json:"markdown_storage_path,omitempty"`
 	PreviewStoragePath   *string                  `json:"preview_storage_path,omitempty"`
@@ -113,7 +111,6 @@ type QueuedKnowledgeDocumentInput struct {
 	SourceStoragePath   string
 	MarkdownStoragePath *string
 	PreviewStoragePath  *string
-	ModelName           string
 }
 
 type QueueKnowledgeBaseBuildParams struct {
@@ -125,20 +122,6 @@ type QueueKnowledgeBaseBuildParams struct {
 	SourceType  string
 	CommandName *string
 	Documents   []QueuedKnowledgeDocumentInput
-}
-
-type KnowledgeDocumentDebugRecord struct {
-	Document          KnowledgeDocumentRecord `json:"document"`
-	KnowledgeBaseID   string                  `json:"knowledge_base_id"`
-	KnowledgeBase     string                  `json:"knowledge_base"`
-	OwnerID           string                  `json:"owner_id"`
-	OwnerName         string                  `json:"owner_name"`
-	Visibility        string                  `json:"visibility"`
-	PreviewEnabled    bool                    `json:"preview_enabled"`
-	DocumentTree      json.RawMessage         `json:"document_tree"`
-	CanonicalMarkdown *string                 `json:"canonical_markdown,omitempty"`
-	SourceMapJSON     json.RawMessage         `json:"source_map_json,omitempty"`
-	DocumentIndexJSON json.RawMessage         `json:"document_index_json,omitempty"`
 }
 
 type KnowledgeRepo struct {
@@ -213,8 +196,7 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 					source_storage_path,
 					markdown_storage_path,
 					preview_storage_path,
-					status,
-					build_model_name
+					status
 				)
 				VALUES (
 					$1::uuid,
@@ -227,8 +209,7 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 					$8,
 					$9,
 					$10,
-					'queued',
-					$11
+					'queued'
 				)
 			`,
 			document.ID,
@@ -241,12 +222,11 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 			document.SourceStoragePath,
 			document.MarkdownStoragePath,
 			document.PreviewStoragePath,
-			document.ModelName,
 		); err != nil {
 			return err
 		}
 
-		message := fmt.Sprintf("Queued indexing for %s", document.DisplayName)
+		message := fmt.Sprintf("Queued source workspace preparation for %s", document.DisplayName)
 		var jobID string
 		if err := tx.QueryRow(
 			ctx,
@@ -258,8 +238,7 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 					thread_id,
 					status,
 					stage,
-					message,
-					model_name
+					message
 				)
 				VALUES (
 					$1::uuid,
@@ -268,8 +247,7 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 					$4,
 					'queued',
 					'queued',
-					$5,
-					$6
+					$5
 				)
 				RETURNING id::text
 			`,
@@ -278,7 +256,6 @@ func (r *KnowledgeRepo) QueueBaseBuild(
 			params.UserID,
 			params.ThreadID,
 			message,
-			document.ModelName,
 		).Scan(&jobID); err != nil {
 			return err
 		}
@@ -337,7 +314,6 @@ func (r *KnowledgeRepo) ListByThread(
 			d.quality_metadata,
 			d.error,
 			d.page_count,
-			d.node_count,
 			d.source_storage_path,
 			d.markdown_storage_path,
 			d.preview_storage_path,
@@ -351,7 +327,6 @@ func (r *KnowledgeRepo) ListByThread(
 			j.progress_percent,
 			j.total_steps,
 			j.completed_steps,
-			j.model_name,
 			j.started_at,
 			j.finished_at,
 			j.created_at,
@@ -409,7 +384,6 @@ func (r *KnowledgeRepo) ListVisible(
 			d.quality_metadata,
 			d.error,
 			d.page_count,
-			d.node_count,
 			d.source_storage_path,
 			d.markdown_storage_path,
 			d.preview_storage_path,
@@ -423,7 +397,6 @@ func (r *KnowledgeRepo) ListVisible(
 			j.progress_percent,
 			j.total_steps,
 			j.completed_steps,
-			j.model_name,
 			j.started_at,
 			j.finished_at,
 			j.created_at,
@@ -650,51 +623,6 @@ func (r *KnowledgeRepo) DeleteBasesByOwner(
 	return records, nil
 }
 
-func (r *KnowledgeRepo) GetDocumentTreeByThread(
-	ctx context.Context,
-	userID uuid.UUID,
-	threadID string,
-	documentID string,
-) (json.RawMessage, error) {
-	query := `
-		SELECT d.document_tree
-		FROM knowledge_thread_bindings t
-		JOIN knowledge_documents d ON d.knowledge_base_id = t.knowledge_base_id
-		WHERE t.user_id = $1
-		  AND t.thread_id = $2
-		  AND d.id = $3::uuid
-		LIMIT 1
-	`
-	var payload []byte
-	if err := r.pool.QueryRow(ctx, query, userID, threadID, documentID).Scan(&payload); err != nil {
-		return nil, err
-	}
-	return json.RawMessage(payload), nil
-}
-
-func (r *KnowledgeRepo) GetVisibleDocumentTree(
-	ctx context.Context,
-	userID uuid.UUID,
-	documentID string,
-) (json.RawMessage, error) {
-	query := `
-		SELECT d.document_tree
-		FROM knowledge_documents d
-		JOIN knowledge_bases b ON b.id = d.knowledge_base_id
-		WHERE d.id = $2::uuid
-		  AND (
-			b.user_id = $1
-			OR (b.visibility = 'shared' AND b.preview_enabled = TRUE)
-		  )
-		LIMIT 1
-	`
-	var payload []byte
-	if err := r.pool.QueryRow(ctx, query, userID, documentID).Scan(&payload); err != nil {
-		return nil, err
-	}
-	return json.RawMessage(payload), nil
-}
-
 func (r *KnowledgeRepo) ListBuildEventsByThreadDocument(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -792,151 +720,6 @@ func (r *KnowledgeRepo) ListBuildEventsByVisibleDocument(
 	return scanBuildEventRows(rows)
 }
 
-func (r *KnowledgeRepo) GetVisibleDocumentDebug(
-	ctx context.Context,
-	userID uuid.UUID,
-	documentID string,
-) (*KnowledgeDocumentDebugRecord, error) {
-	query := `
-		SELECT
-			d.id::text,
-			d.display_name,
-			d.file_kind,
-			d.locator_type,
-			d.status,
-			d.doc_description,
-			d.build_quality,
-			d.quality_metadata,
-			d.error,
-			d.page_count,
-			d.node_count,
-			d.source_storage_path,
-			d.markdown_storage_path,
-			d.preview_storage_path,
-			d.canonical_storage_path,
-			d.created_at,
-			d.updated_at,
-			b.id::text,
-			b.name,
-			b.user_id::text,
-			u.name,
-			b.visibility,
-			b.preview_enabled,
-			d.document_tree,
-			d.canonical_markdown,
-			d.source_map_json,
-			d.document_index_json,
-			j.id::text,
-			j.status,
-			j.stage,
-			j.message,
-			j.progress_percent,
-			j.total_steps,
-			j.completed_steps,
-			j.model_name,
-			j.started_at,
-			j.finished_at,
-			j.created_at,
-			j.updated_at
-		FROM knowledge_documents d
-		JOIN knowledge_bases b ON b.id = d.knowledge_base_id
-		JOIN users u ON u.id = b.user_id
-		LEFT JOIN LATERAL (
-			SELECT *
-			FROM knowledge_build_jobs j
-			WHERE j.document_id = d.id
-			ORDER BY j.created_at DESC
-			LIMIT 1
-		) j ON TRUE
-		WHERE d.id = $2::uuid
-		  AND (
-			b.user_id = $1
-			OR (b.visibility = 'shared' AND b.preview_enabled = TRUE)
-		  )
-		LIMIT 1
-	`
-	var (
-		record            KnowledgeDocumentDebugRecord
-		documentTree      []byte
-		sourceMapJSON     []byte
-		documentIndexJSON []byte
-		jobID             *string
-		jobStatus         *string
-		jobStage          *string
-		jobMessage        *string
-		jobProgress       *int
-		jobTotalSteps     *int
-		jobCompleted      *int
-		jobModelName      *string
-		jobStartedAt      *time.Time
-		jobFinishedAt     *time.Time
-		jobCreatedAt      *time.Time
-		jobUpdatedAt      *time.Time
-	)
-	err := r.pool.QueryRow(ctx, query, userID, documentID).Scan(
-		&record.Document.ID,
-		&record.Document.DisplayName,
-		&record.Document.FileKind,
-		&record.Document.LocatorType,
-		&record.Document.Status,
-		&record.Document.DocDescription,
-		&record.Document.BuildQuality,
-		&record.Document.QualityMetadata,
-		&record.Document.Error,
-		&record.Document.PageCount,
-		&record.Document.NodeCount,
-		&record.Document.SourceStoragePath,
-		&record.Document.MarkdownStoragePath,
-		&record.Document.PreviewStoragePath,
-		&record.Document.CanonicalStoragePath,
-		&record.Document.CreatedAt,
-		&record.Document.UpdatedAt,
-		&record.KnowledgeBaseID,
-		&record.KnowledgeBase,
-		&record.OwnerID,
-		&record.OwnerName,
-		&record.Visibility,
-		&record.PreviewEnabled,
-		&documentTree,
-		&record.CanonicalMarkdown,
-		&sourceMapJSON,
-		&documentIndexJSON,
-		&jobID,
-		&jobStatus,
-		&jobStage,
-		&jobMessage,
-		&jobProgress,
-		&jobTotalSteps,
-		&jobCompleted,
-		&jobModelName,
-		&jobStartedAt,
-		&jobFinishedAt,
-		&jobCreatedAt,
-		&jobUpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	record.DocumentTree = json.RawMessage(documentTree)
-	record.SourceMapJSON = json.RawMessage(sourceMapJSON)
-	record.DocumentIndexJSON = json.RawMessage(documentIndexJSON)
-	record.Document.LatestBuildJob = buildKnowledgeBuildJobRecord(
-		jobID,
-		jobStatus,
-		jobStage,
-		jobMessage,
-		jobProgress,
-		jobTotalSteps,
-		jobCompleted,
-		jobModelName,
-		jobStartedAt,
-		jobFinishedAt,
-		jobCreatedAt,
-		jobUpdatedAt,
-	)
-	return &record, nil
-}
-
 func (r *KnowledgeRepo) GetVisibleDocumentFile(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -1000,7 +783,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			qualityMetadata      map[string]any
 			documentError        *string
 			pageCount            *int
-			nodeCount            *int
 			sourceStoragePath    *string
 			markdownStoragePath  *string
 			previewStoragePath   *string
@@ -1014,7 +796,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			jobProgress          *int
 			jobTotalSteps        *int
 			jobCompleted         *int
-			jobModelName         *string
 			jobStartedAt         *time.Time
 			jobFinishedAt        *time.Time
 			jobCreatedAt         *time.Time
@@ -1043,7 +824,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			&qualityMetadata,
 			&documentError,
 			&pageCount,
-			&nodeCount,
 			&sourceStoragePath,
 			&markdownStoragePath,
 			&previewStoragePath,
@@ -1057,7 +837,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			&jobProgress,
 			&jobTotalSteps,
 			&jobCompleted,
-			&jobModelName,
 			&jobStartedAt,
 			&jobFinishedAt,
 			&jobCreatedAt,
@@ -1091,10 +870,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			continue
 		}
 
-		docNodeCount := 0
-		if nodeCount != nil {
-			docNodeCount = *nodeCount
-		}
 		result[index].Documents = append(result[index].Documents, KnowledgeDocumentRecord{
 			ID:                   *documentID,
 			DisplayName:          *displayName,
@@ -1106,7 +881,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			QualityMetadata:      qualityMetadata,
 			Error:                documentError,
 			PageCount:            pageCount,
-			NodeCount:            docNodeCount,
 			SourceStoragePath:    sourceStoragePath,
 			MarkdownStoragePath:  markdownStoragePath,
 			PreviewStoragePath:   previewStoragePath,
@@ -1121,7 +895,6 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 				jobProgress,
 				jobTotalSteps,
 				jobCompleted,
-				jobModelName,
 				jobStartedAt,
 				jobFinishedAt,
 				jobCreatedAt,
@@ -1143,7 +916,6 @@ func buildKnowledgeBuildJobRecord(
 	jobProgress *int,
 	jobTotalSteps *int,
 	jobCompleted *int,
-	jobModelName *string,
 	jobStartedAt *time.Time,
 	jobFinishedAt *time.Time,
 	jobCreatedAt *time.Time,
@@ -1160,7 +932,6 @@ func buildKnowledgeBuildJobRecord(
 		ProgressPercent: derefInt(jobProgress),
 		TotalSteps:      derefInt(jobTotalSteps),
 		CompletedSteps:  derefInt(jobCompleted),
-		ModelName:       jobModelName,
 		StartedAt:       jobStartedAt,
 		FinishedAt:      jobFinishedAt,
 		CreatedAt:       jobCreatedAt,

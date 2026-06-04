@@ -18,7 +18,7 @@ vi.mock("@/core/i18n/hooks", () => ({
         status: {
           queued: "Queued",
           ready: "Ready",
-          processing: "Indexing",
+          processing: "Preparing",
           error: "Error",
         },
       },
@@ -46,7 +46,6 @@ vi.mock("@/core/knowledge/hooks", () => ({
             file_kind: "pdf",
             locator_type: "page",
             status: "queued",
-            node_count: 0,
             latest_build_job: {
               id: "job-1",
               status: "processing",
@@ -70,7 +69,7 @@ vi.mock("@/core/knowledge/api", () => ({
 }));
 
 describe("ThreadKnowledgeAttachmentStrip", () => {
-  it("renders attached knowledge bases with live indexing progress", () => {
+  it("renders attached knowledge bases with live preparation progress", () => {
     const queryClient = new QueryClient();
 
     render(
@@ -83,7 +82,7 @@ describe("ThreadKnowledgeAttachmentStrip", () => {
 
     expect(screen.getByText("1 attached base")).toBeInTheDocument();
     expect(screen.getByText("中文合同陷阱测试包")).toBeInTheDocument();
-    expect(screen.getByText("Indexing 42%")).toBeInTheDocument();
+    expect(screen.getByText("Preparing 42%")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Detach" })).toBeInTheDocument();
     expect(
       screen.getByText("01_construction_killer_clauses.pdf"),

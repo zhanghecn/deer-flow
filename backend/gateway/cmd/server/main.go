@@ -137,7 +137,7 @@ func main() {
 	runtimeWorkspaceH := handler.NewRuntimeWorkspaceHandler(threadRepo, cfg.Upstream.LangGraphURL)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, threadRepo, modelRepo, fs, knowledgeAssetStore)
+	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, threadRepo, fs, knowledgeAssetStore)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:         cfg.OnlyOffice.ServerURL,
 		InternalServerURL: cfg.OnlyOffice.InternalServerURL,
@@ -323,15 +323,12 @@ func main() {
 		api.GET("/knowledge/bases/:knowledge_base_id/workspace/graph", knowledgeH.WorkspaceGraph)
 		api.GET("/knowledge/documents/:document_id/file", knowledgeH.VisibleDocumentFile)
 		api.GET("/knowledge/documents/:document_id/asset", knowledgeH.VisibleDocumentAsset)
-		api.GET("/knowledge/documents/:document_id/tree", knowledgeH.VisibleDocumentTree)
 		api.GET("/knowledge/documents/:document_id/build-events", knowledgeH.VisibleDocumentBuildEvents)
-		api.GET("/knowledge/documents/:document_id/debug", knowledgeH.DocumentDebug)
 		api.GET("/threads/:id/knowledge/bases", knowledgeH.List)
 		api.POST("/threads/:id/knowledge/bases", knowledgeH.Create)
 		api.POST("/threads/:id/knowledge/bases/:knowledge_base_id/attach", knowledgeH.AttachBase)
 		api.DELETE("/threads/:id/knowledge/bases/:knowledge_base_id/attach", knowledgeH.DetachBase)
-		api.POST("/threads/:id/knowledge/index-uploaded", knowledgeH.IndexUploaded)
-		api.GET("/threads/:id/knowledge/documents/:document_id/tree", knowledgeH.DocumentTree)
+		api.POST("/threads/:id/knowledge/import-uploaded", knowledgeH.ImportUploaded)
 		api.GET("/threads/:id/knowledge/documents/:document_id/build-events", knowledgeH.DocumentBuildEvents)
 
 		// Artifacts

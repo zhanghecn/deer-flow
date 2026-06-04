@@ -13,25 +13,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   createKnowledgeBase,
   createThreadKnowledgeBase,
 } from "@/core/knowledge/api";
-import { useModels } from "@/core/models/hooks";
-import {
-  findAvailableModelName,
-  normalizeModelName,
-} from "@/core/models/selection";
-import { getLocalSettings } from "@/core/settings";
 
 const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([
   ".pdf",
@@ -42,14 +29,6 @@ const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([
   ".md",
   ".markdown",
 ]);
-const KNOWLEDGE_COMPILE_MODEL_PREFERENCES = [
-  "deepseek-flash",
-  "deepseek-v4-flash",
-];
-type KnowledgeCompileModelOption = {
-  name: string;
-  display_name?: string;
-};
 type DirectoryInputElement = HTMLInputElement & {
   webkitdirectory?: boolean;
   directory?: boolean;
@@ -141,53 +120,11 @@ function resolveKnowledgeBaseName(
   return `${primaryLabel} +${files.length - 1}`;
 }
 
-function resolveInitialModelName(
-  currentModelName: string,
-  defaultModelName: string | undefined,
-  models: KnowledgeCompileModelOption[],
-) {
-  const flashModelNames = preferredKnowledgeCompileModelNames(models);
-  const configuredModelName = findAvailableModelName(
-    models,
-    currentModelName,
-    ...flashModelNames,
-    ...KNOWLEDGE_COMPILE_MODEL_PREFERENCES,
-    defaultModelName,
-    getLocalSettings().context.model_name,
-  );
-  return (normalizeModelName(configuredModelName) || models[0]?.name) ?? "";
-}
-
-function preferredKnowledgeCompileModelNames(
-  models: KnowledgeCompileModelOption[],
-) {
-  return [...models]
-    .sort(
-      (left, right) =>
-        knowledgeCompileModelPriority(left) -
-        knowledgeCompileModelPriority(right),
-    )
-    .filter((model) => knowledgeCompileModelPriority(model) < 100)
-    .map((model) => model.name);
-}
-
-function knowledgeCompileModelPriority(model: KnowledgeCompileModelOption) {
-  const haystack = `${model.name} ${model.display_name ?? ""}`.toLowerCase();
-  if (!haystack.includes("flash")) {
-    return 100;
-  }
-  if (haystack.includes("deepseek")) {
-    return 0;
-  }
-  return 10;
-}
-
 export function KnowledgeBaseUploadDialog({
   threadId,
   open,
   onOpenChange,
   onUploaded,
-  defaultModelName,
   ensureThreadExists,
 }: {
   threadId?: string;
@@ -197,27 +134,15 @@ export function KnowledgeBaseUploadDialog({
     knowledgeBaseId: string;
     knowledgeBaseName: string;
   }) => void;
-  defaultModelName?: string;
   ensureThreadExists?: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const { models, isLoading: modelsLoading } = useModels({ enabled: open });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [rejectedFiles, setRejectedFiles] = useState<File[]>([]);
-  const [selectedModelName, setSelectedModelName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const orderedModels = useMemo(
-    () =>
-      [...models].sort(
-        (left, right) =>
-          knowledgeCompileModelPriority(left) -
-          knowledgeCompileModelPriority(right),
-      ),
-    [models],
-  );
   const selectedTotalSize = useMemo(
     () => files.reduce((total, file) => total + file.size, 0),
     [files],
@@ -247,31 +172,12 @@ export function KnowledgeBaseUploadDialog({
     setDescription("");
     setFiles([]);
     setRejectedFiles([]);
-    setSelectedModelName("");
     setSubmitting(false);
   }, [open]);
-
-  useEffect(() => {
-    if (!open || models.length === 0) {
-      return;
-    }
-
-    setSelectedModelName((current) =>
-      resolveInitialModelName(current, defaultModelName, models),
-    );
-  }, [defaultModelName, models, open]);
 
   const handleCreate = async () => {
     if (files.length === 0) {
       toast.error(t.knowledge.chooseAtLeastOneFile);
-      return;
-    }
-
-    const selectedModel = models.find(
-      (model) => model.name === selectedModelName,
-    );
-    if (!selectedModel) {
-      toast.error(t.knowledge.invalidSelectedModel);
       return;
     }
 
@@ -292,15 +198,13 @@ export function KnowledgeBaseUploadDialog({
 
       const response = threadId
         ? await createThreadKnowledgeBase(threadId, {
-            name: resolvedName,
-            description: description.trim(),
-            modelName: selectedModel.name,
-            files,
-          })
+          name: resolvedName,
+          description: description.trim(),
+          files,
+        })
         : await createKnowledgeBase({
             name: resolvedName,
             description: description.trim(),
-            modelName: selectedModel.name,
             files,
           });
 
@@ -322,7 +226,7 @@ export function KnowledgeBaseUploadDialog({
         knowledgeBaseName: resolvedName,
       });
       onOpenChange(false);
-      toast.success(t.knowledge.indexQueued);
+      toast.success(t.knowledge.preparationQueued);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t.knowledge.createError,
@@ -344,31 +248,6 @@ export function KnowledgeBaseUploadDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <div className="text-sm font-medium">{t.knowledge.modelLabel}</div>
-            <Select
-              value={selectedModelName}
-              onValueChange={setSelectedModelName}
-              disabled={submitting || modelsLoading || models.length === 0}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={
-                    modelsLoading
-                      ? t.common.loading
-                      : t.knowledge.modelPlaceholder
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {orderedModels.map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
-                    {model.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -459,10 +338,7 @@ export function KnowledgeBaseUploadDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t.common.cancel}
           </Button>
-          <Button
-            onClick={handleCreate}
-            disabled={submitting || modelsLoading || selectedModelName === ""}
-          >
+          <Button onClick={handleCreate} disabled={submitting}>
             {submitting ? (
               <LoaderIcon className="mr-2 size-4 animate-spin" />
             ) : null}

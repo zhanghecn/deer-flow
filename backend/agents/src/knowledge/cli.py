@@ -6,7 +6,7 @@ from src.knowledge.worker import KnowledgeBuildWorker
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Knowledge indexing CLI")
+    parser = argparse.ArgumentParser(description="Knowledge source workspace CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     worker_parser = subparsers.add_parser("worker")
