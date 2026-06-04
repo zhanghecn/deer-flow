@@ -247,12 +247,18 @@ CREATE TABLE knowledge_documents (
     error TEXT,
     doc_description TEXT,
     page_count INTEGER,
+    node_count INTEGER NOT NULL DEFAULT 0,
+    build_model_name VARCHAR(128),
+    document_tree JSONB NOT NULL DEFAULT '{}'::jsonb,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     canonical_storage_path TEXT,
+    source_map_storage_path TEXT,
     content_sha256 VARCHAR(64),
     canonical_markdown TEXT,
+    source_map_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    document_index_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     build_quality VARCHAR(32) NOT NULL DEFAULT 'ready',
     quality_metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
@@ -261,7 +267,37 @@ CREATE INDEX idx_knowledge_documents_base_id ON knowledge_documents(knowledge_ba
 CREATE INDEX idx_knowledge_documents_user_id ON knowledge_documents(user_id);
 CREATE INDEX idx_knowledge_documents_status ON knowledge_documents(status);
 CREATE INDEX idx_knowledge_documents_content_sha
-    ON knowledge_documents(content_sha256, file_kind, status);
+    ON knowledge_documents(content_sha256, file_kind, status, build_model_name);
+
+CREATE TABLE knowledge_document_nodes (
+    id BIGSERIAL PRIMARY KEY,
+    document_id UUID NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    node_id VARCHAR(64) NOT NULL,
+    parent_node_id VARCHAR(64),
+    node_path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    child_count INTEGER NOT NULL DEFAULT 0,
+    locator_type VARCHAR(32) NOT NULL,
+    page_start INTEGER,
+    page_end INTEGER,
+    line_start INTEGER,
+    line_end INTEGER,
+    heading_slug TEXT,
+    summary TEXT,
+    excerpt TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    prefix_summary TEXT,
+    node_text TEXT,
+    visual_summary TEXT,
+    summary_quality VARCHAR(32) NOT NULL DEFAULT 'fallback',
+    evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    UNIQUE (document_id, node_id)
+);
+
+CREATE INDEX idx_knowledge_document_nodes_document_id ON knowledge_document_nodes(document_id);
+CREATE INDEX idx_knowledge_document_nodes_parent
+    ON knowledge_document_nodes(document_id, parent_node_id, node_path);
 
 CREATE TABLE knowledge_thread_bindings (
     thread_id VARCHAR(64) NOT NULL,
@@ -286,6 +322,7 @@ CREATE TABLE knowledge_build_jobs (
     progress_percent INTEGER NOT NULL DEFAULT 0,
     total_steps INTEGER NOT NULL DEFAULT 0,
     completed_steps INTEGER NOT NULL DEFAULT 0,
+    model_name VARCHAR(128),
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
