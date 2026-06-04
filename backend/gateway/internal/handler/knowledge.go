@@ -386,6 +386,7 @@ func (h *KnowledgeHandler) WorkspaceTree(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list knowledge workspace"})
 		return
 	}
+	paths = filterSourceWorkspaceMarkdownPaths(paths)
 	c.JSON(http.StatusOK, knowledgeWorkspaceTreeResponse{
 		Workspace: *workspace,
 		Tree:      buildWorkspaceFileTree(paths),
@@ -400,6 +401,13 @@ func (h *KnowledgeHandler) WorkspaceFile(c *gin.Context) {
 	relativePath, err := cleanWorkspaceRelativePath(c.Query("path"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if !isSourceWorkspaceMarkdownPath(relativePath) {
+		// The management preview mirrors the agent-facing source-only contract:
+		// old compiled wiki/cache objects may still exist in storage during
+		// migrations, but they must not be readable as workspace files.
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "knowledge workspace files must be under sources/*.md"})
 		return
 	}
 	storageRef := h.assetStore.RefForRelativePath(filepath.ToSlash(filepath.Join(
@@ -1307,6 +1315,24 @@ func buildWorkspaceFileTree(paths []string) []*knowledgeWorkspaceFileNode {
 	}
 	sortWorkspaceTree(root.Children)
 	return root.Children
+}
+
+func filterSourceWorkspaceMarkdownPaths(paths []string) []string {
+	filtered := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if isSourceWorkspaceMarkdownPath(path) {
+			filtered = append(filtered, filepath.ToSlash(filepath.Clean(path)))
+		}
+	}
+	return filtered
+}
+
+func isSourceWorkspaceMarkdownPath(path string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/")))
+	fileName := strings.TrimPrefix(cleanPath, "sources/")
+	// Source workspace generation writes a flat `sources/{slug}.md` file per
+	// source document. Nested directories are treated as stale/generated data.
+	return fileName != cleanPath && fileName != "" && !strings.Contains(fileName, "/") && strings.HasSuffix(fileName, ".md")
 }
 
 func findWorkspaceTreeChild(parent *knowledgeWorkspaceFileNode, name string) *knowledgeWorkspaceFileNode {

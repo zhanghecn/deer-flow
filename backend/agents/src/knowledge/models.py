@@ -23,6 +23,27 @@ class QueuedKnowledgeBuildJob(BaseModel):
     preview_storage_path: str | None = None
 
 
+class ReadyKnowledgeDocumentForWorkspace(BaseModel):
+    """Ready document metadata needed to repair a source workspace.
+
+    Existing installations may already have canonical Markdown in document
+    packages but no flat `workspace/sources/*.md` files. The worker uses this
+    record to copy canonical source text into the agent-facing workspace without
+    re-running OCR, LLM compilation, or deprecated PageTree indexing.
+    """
+
+    knowledge_base_id: str
+    document_id: str
+    user_id: str
+    display_name: str
+    file_name: str
+    file_kind: str
+    source_storage_path: str
+    markdown_storage_path: str | None = None
+    preview_storage_path: str | None = None
+    canonical_storage_path: str | None = None
+
+
 class SourceDocument(BaseModel):
     """Canonical source text persisted for a knowledge document.
 

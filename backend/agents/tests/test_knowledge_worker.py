@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.knowledge import worker as knowledge_worker
-from src.knowledge.models import SourceDocument, KnowledgeWorkspaceRecord, QueuedKnowledgeBuildJob
+from src.knowledge.models import (
+    ReadyKnowledgeDocumentForWorkspace,
+    SourceDocument,
+    KnowledgeWorkspaceRecord,
+    QueuedKnowledgeBuildJob,
+)
 from src.knowledge.worker import KnowledgeBuildWorker
 
 
@@ -16,6 +21,7 @@ class _FakeRepository:
         self.document_errors: list[dict] = []
         self.replaced_documents: list[dict] = []
         self.reuse_queries: list[dict] = []
+        self.ready_documents_for_repair: list[ReadyKnowledgeDocumentForWorkspace] = []
         self.workspace_record = KnowledgeWorkspaceRecord(
             id="base-1",
             owner_id="user-1",
@@ -57,6 +63,9 @@ class _FakeRepository:
     def get_workspace_record(self, *, knowledge_base_id: str):
         assert knowledge_base_id == "base-1"
         return self.workspace_record
+
+    def list_ready_documents_for_workspace_repair(self):
+        return self.ready_documents_for_repair
 
 
 def _queued_job() -> QueuedKnowledgeBuildJob:
@@ -140,3 +149,56 @@ def test_worker_run_once_processes_claimed_job(monkeypatch, tmp_path):
     assert repository.replaced_documents
     assert repository.build_job_updates[-1]["status"] == "ready"
     assert repository.build_job_updates[-1]["stage"] == "completed"
+
+
+def test_repair_missing_source_workspaces_writes_canonical_sources(monkeypatch):
+    repository = _FakeRepository()
+    repository.ready_documents_for_repair = [
+        ReadyKnowledgeDocumentForWorkspace(
+            knowledge_base_id="base-1",
+            document_id="doc-1",
+            user_id="user-1",
+            display_name="案例大全/盲派真实案例/壬寅柱/cases.md",
+            file_name="cases.md",
+            file_kind="markdown",
+            source_storage_path="knowledge/users/user-1/bases/base-1/documents/doc-1/source/cases.md",
+            canonical_storage_path="knowledge/users/user-1/bases/base-1/documents/doc-1/canonical/canonical.md",
+        )
+    ]
+    canonical = SourceDocument(
+        display_name="cases.md",
+        file_name="cases.md",
+        file_kind="markdown",
+        locator_type="heading",
+        page_count=1,
+        doc_description="壬寅日主丑月案例",
+        canonical_markdown="# 壬寅日主丑月\n\n相似案例原文。",
+    )
+    written: dict[str, str] = {}
+
+    class _FakeWorkspaceStore:
+        def list_files(self, workspace):
+            assert workspace.id == "base-1"
+            return []
+
+    monkeypatch.setattr(
+        repository,
+        "load_source_document",
+        lambda *, document_id: canonical if document_id == "doc-1" else None,
+    )
+    monkeypatch.setattr(
+        knowledge_worker,
+        "sync_source_document_to_workspace",
+        lambda **kwargs: written.setdefault(
+            "path",
+            f"sources/{knowledge_worker.source_slug(kwargs['job'].display_name, kwargs['job'].document_id)}.md",
+        ),
+    )
+
+    repaired = knowledge_worker.repair_missing_source_workspaces(
+        repository=repository,
+        workspace_store=_FakeWorkspaceStore(),  # type: ignore[arg-type]
+    )
+
+    assert repaired == 1
+    assert written["path"] == "sources/案例大全-盲派真实案例-壬寅柱-cases-doc-1.md"

@@ -13,6 +13,7 @@ from src.knowledge.models import (
     KnowledgeBuildJobSummary,
     KnowledgeWorkspaceRecord,
     QueuedKnowledgeBuildJob,
+    ReadyKnowledgeDocumentForWorkspace,
 )
 from src.knowledge.storage import get_knowledge_asset_store
 
@@ -553,6 +554,54 @@ class KnowledgeRepository:
             quality_metadata=row[7] if isinstance(row[7], dict) else {},
             canonical_markdown=canonical_markdown,
         )
+
+    def list_ready_documents_for_workspace_repair(self) -> list[ReadyKnowledgeDocumentForWorkspace]:
+        """Return ready documents whose canonical text can rebuild source workspaces.
+
+        The source-only migration intentionally removed compiled wiki/PageTree
+        state. Older rows can still be valid if their canonical Markdown exists,
+        so the worker reconciles those rows into `workspace/sources/*.md` instead
+        of asking operators to re-upload or recompile user documents.
+        """
+
+        query = """
+            SELECT
+                knowledge_base_id::text,
+                id::text,
+                user_id::text,
+                display_name,
+                file_name,
+                file_kind,
+                source_storage_path,
+                markdown_storage_path,
+                preview_storage_path,
+                canonical_storage_path
+            FROM knowledge_documents
+            WHERE status IN ('ready', 'ready_degraded')
+              AND (
+                    canonical_markdown IS NOT NULL
+                 OR canonical_storage_path IS NOT NULL
+              )
+            ORDER BY knowledge_base_id::text ASC, created_at ASC, id ASC
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+        return [
+            ReadyKnowledgeDocumentForWorkspace(
+                knowledge_base_id=str(row[0]),
+                document_id=str(row[1]),
+                user_id=str(row[2]),
+                display_name=str(row[3]),
+                file_name=str(row[4]),
+                file_kind=str(row[5]),
+                source_storage_path=str(row[6]),
+                markdown_storage_path=row[7],
+                preview_storage_path=row[8],
+                canonical_storage_path=row[9],
+            )
+            for row in rows
+        ]
 
     def mark_document_error(self, *, document_id: str, error: str) -> None:
         query = """

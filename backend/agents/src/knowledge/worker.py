@@ -7,11 +7,11 @@ import threading
 import time
 from pathlib import Path
 
-from src.knowledge.models import QueuedKnowledgeBuildJob
+from src.knowledge.models import QueuedKnowledgeBuildJob, ReadyKnowledgeDocumentForWorkspace
 from src.knowledge.repository import KnowledgeRepository
 from src.knowledge.source_workspace import build_source_workspace_document
 from src.knowledge.storage import get_knowledge_asset_store
-from src.knowledge.source_workspace_store import KnowledgeWorkspaceStore, sync_source_document_to_workspace
+from src.knowledge.source_workspace_store import KnowledgeWorkspaceStore, source_slug, sync_source_document_to_workspace
 
 logger = logging.getLogger(__name__)
 _SOURCE_WORKSPACE_CACHE_VERSION = "source-workspace-v1"
@@ -23,6 +23,8 @@ _worker_threads: list[threading.Thread] = []
 _worker_stop_event: threading.Event | None = None
 _workspace_sync_locks: dict[str, threading.Lock] = {}
 _workspace_sync_locks_guard = threading.Lock()
+_workspace_repair_done = False
+_workspace_repair_lock = threading.Lock()
 
 
 class _BuildJobObserver:
@@ -251,6 +253,83 @@ def _sync_workspace_artifacts(
     )
 
 
+def _repair_source_workspace_document(
+    *,
+    repository: KnowledgeRepository,
+    workspace_store: KnowledgeWorkspaceStore,
+    document: ReadyKnowledgeDocumentForWorkspace,
+    workspace,
+) -> bool:
+    source_document = repository.load_source_document(document_id=document.document_id)
+    if source_document is None:
+        logger.warning("Skipping source workspace repair for document without canonical text: %s", document.document_id)
+        return False
+    job = QueuedKnowledgeBuildJob(
+        job_id=f"repair-{document.document_id}",
+        knowledge_base_id=document.knowledge_base_id,
+        document_id=document.document_id,
+        user_id=document.user_id,
+        thread_id="",
+        display_name=document.display_name,
+        file_name=document.file_name,
+        file_kind=document.file_kind,
+        source_storage_path=document.source_storage_path,
+        markdown_storage_path=document.markdown_storage_path,
+        preview_storage_path=document.preview_storage_path,
+    )
+    # Reconciliation uses the same writer as fresh builds so stale compiled
+    # workspace files are removed and the flat `sources/{slug}.md` naming stays
+    # consistent across migrated and newly uploaded documents.
+    with _workspace_sync_lock_for(document.knowledge_base_id):
+        sync_source_document_to_workspace(
+            store=workspace_store,
+            workspace=workspace,
+            job=job,
+            source_document=source_document,
+            content_sha256=None,
+        )
+    return True
+
+
+def repair_missing_source_workspaces(
+    *,
+    repository: KnowledgeRepository | None = None,
+    workspace_store: KnowledgeWorkspaceStore | None = None,
+) -> int:
+    """Backfill source workspace files for ready documents after hard-cut migrations."""
+
+    repository = repository or KnowledgeRepository()
+    workspace_store = workspace_store or KnowledgeWorkspaceStore()
+    repaired = 0
+    existing_paths_by_base: dict[str, set[str]] = {}
+    workspace_by_base = {}
+    for document in repository.list_ready_documents_for_workspace_repair():
+        expected_path = f"sources/{source_slug(document.display_name, document.document_id)}.md"
+        workspace = workspace_by_base.get(document.knowledge_base_id)
+        if workspace is None and document.knowledge_base_id not in workspace_by_base:
+            workspace = repository.get_workspace_record(knowledge_base_id=document.knowledge_base_id)
+            workspace_by_base[document.knowledge_base_id] = workspace
+        if workspace is None:
+            continue
+        existing_paths = existing_paths_by_base.get(document.knowledge_base_id)
+        if existing_paths is None:
+            existing_paths = {file.path for file in workspace_store.list_files(workspace)}
+            existing_paths_by_base[document.knowledge_base_id] = existing_paths
+        if expected_path in existing_paths:
+            continue
+        if _repair_source_workspace_document(
+            repository=repository,
+            workspace_store=workspace_store,
+            document=document,
+            workspace=workspace,
+        ):
+            repaired += 1
+            existing_paths.add(expected_path)
+    if repaired:
+        logger.info("Repaired %s knowledge source workspace file(s).", repaired)
+    return repaired
+
+
 def process_build_job(
     *,
     repository: KnowledgeRepository,
@@ -349,6 +428,7 @@ class KnowledgeBuildWorker:
 
     def run_once(self) -> bool:
         repository = self._repository_factory()
+        _repair_missing_source_workspaces_once(repository=repository)
         job = repository.claim_next_queued_job()
         if job is None:
             return False
@@ -401,6 +481,22 @@ def _knowledge_worker_concurrency() -> int:
 def _workspace_sync_lock_for(knowledge_base_id: str) -> threading.Lock:
     with _workspace_sync_locks_guard:
         return _workspace_sync_locks.setdefault(knowledge_base_id, threading.Lock())
+
+
+def _repair_missing_source_workspaces_once(*, repository: KnowledgeRepository | None = None) -> None:
+    global _workspace_repair_done
+
+    if _workspace_repair_done:
+        return
+    with _workspace_repair_lock:
+        if _workspace_repair_done:
+            return
+        try:
+            repair_missing_source_workspaces(repository=repository)
+        except Exception:
+            logger.exception("Knowledge source workspace repair failed")
+            return
+        _workspace_repair_done = True
 
 
 def start_knowledge_worker_thread() -> threading.Thread | None:

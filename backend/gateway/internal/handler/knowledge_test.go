@@ -236,6 +236,35 @@ func TestWorkspaceGraphHelpersUseSourceMarkdownRelationshipSignals(t *testing.T)
 	}
 }
 
+func TestFilterSourceWorkspaceMarkdownPathsRemovesDeprecatedArtifacts(t *testing.T) {
+	got := filterSourceWorkspaceMarkdownPaths([]string{
+		"sources/合同.md",
+		"wiki/concepts/旧概念.md",
+		".llm-wiki/ingest-cache.json",
+		"raw/sources/.cache/stale.txt",
+		"sources/.cache/stale.txt",
+		`Sources\wrong-case.md`,
+	})
+
+	if strings.Join(got, ",") != "sources/合同.md" {
+		t.Fatalf("filterSourceWorkspaceMarkdownPaths() = %+v, want only source markdown files", got)
+	}
+}
+
+func TestIsSourceWorkspaceMarkdownPathRequiresSourceMarkdown(t *testing.T) {
+	for _, path := range []string{"sources/合同.md", `sources\合同.md`} {
+		if !isSourceWorkspaceMarkdownPath(path) {
+			t.Fatalf("isSourceWorkspaceMarkdownPath(%q) = false, want true", path)
+		}
+	}
+
+	for _, path := range []string{"wiki/合同.md", ".llm-wiki/cache.json", "raw/sources/.cache/a.txt", "sources/readme.txt", "sources/nested/合同.md", "../sources/合同.md"} {
+		if isSourceWorkspaceMarkdownPath(path) {
+			t.Fatalf("isSourceWorkspaceMarkdownPath(%q) = true, want false", path)
+		}
+	}
+}
+
 func TestWorkspaceGraphCommunityIdsFollowSortedDisplayOrder(t *testing.T) {
 	nodes := map[string]*knowledgeWorkspaceGraphRawNode{
 		"a": {id: "a", label: "A", out: map[string]bool{"b": true}, in: map[string]bool{}},
