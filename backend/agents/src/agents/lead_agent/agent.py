@@ -70,7 +70,9 @@ from src.runtime_backends import (
 )
 from src.runtime_backends import (
     build_runtime_workspace_backend,
+    REMOTE_EXECUTION_BACKEND,
     resolve_default_execution_backend,
+    resolve_runtime_backend_kind,
     resolve_skills_mount,
 )
 from src.runtime_backends import (
@@ -405,6 +407,9 @@ def _seed_runtime_materials(
     status: str,
     agent_config: AgentConfig | None,
     request: LeadAgentRequest | None = None,
+    thread_id: str | None = None,
+    user_id: str | None = None,
+    execution_backend: str | None = None,
 ) -> None:
     paths = get_paths()
     ensure_builtin_agent_archive(agent_name, status=status, paths=paths)
@@ -416,12 +421,21 @@ def _seed_runtime_materials(
         paths=paths,
         request=request,
     )
+    runtime_thread_id = thread_id if thread_id is not None else getattr(request, "thread_id", None)
+    runtime_user_id = user_id if user_id is not None else getattr(request, "user_id", None)
     _materialize_runtime_targets_for_thread(
         paths,
-        thread_id=getattr(request, "thread_id", None),
-        user_id=getattr(request, "user_id", None),
+        thread_id=runtime_thread_id,
+        user_id=runtime_user_id,
         runtime_targets=runtime_targets,
     )
+    requested_backend = execution_backend if execution_backend is not None else getattr(request, "execution_backend", None)
+    if resolve_runtime_backend_kind(requested_backend) != REMOTE_EXECUTION_BACKEND:
+        # Local and shared-mount sandbox execution read the host-side thread
+        # runtime tree materialized above. A second backend diff would only
+        # call sandbox download/upload APIs for every copied skill file and make
+        # audit logs look like the model had read unrelated skills.
+        return
     missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
     _upload_runtime_files(backend, missing_uploads)
 
@@ -467,6 +481,9 @@ def _seed_create_agent_target_runtime_materials_if_available(
         status=request.agent_status,
         agent_config=target_agent_config,
         request=request,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
+        execution_backend=request.execution_backend,
     )
 
 
@@ -554,6 +571,14 @@ def build_backend(
     # === Runtime layer (per-thread isolated) ===
     effective_thread_id = _effective_thread_id(thread_id)
     request_user_id = request.user_id if request is not None else user_id
+    effective_execution_backend = execution_backend
+    effective_remote_session_id = remote_session_id
+    if request is not None:
+        # Runtime identity may arrive either through explicit build arguments or
+        # through the typed request object. Resolve it once so backend selection
+        # and runtime file seeding cannot disagree for remote runs.
+        effective_execution_backend = effective_execution_backend if effective_execution_backend is not None else request.execution_backend
+        effective_remote_session_id = effective_remote_session_id if effective_remote_session_id is not None else request.remote_session_id
     if request_user_id is None and thread_id is None:
         # The synthetic default graph backend has no tenant owner because it is
         # only used for shared read context; keep it in the user-scoped layout so
@@ -566,8 +591,8 @@ def build_backend(
         thread_id=effective_thread_id,
         user_id=request_user_id,
         paths=paths,
-        requested_backend=execution_backend,
-        remote_session_id=remote_session_id,
+        requested_backend=effective_execution_backend,
+        remote_session_id=effective_remote_session_id,
     )
     _seed_runtime_materials(
         workspace_backend,
@@ -575,6 +600,9 @@ def build_backend(
         status=status,
         agent_config=agent_config,
         request=request,
+        thread_id=effective_thread_id,
+        user_id=request_user_id,
+        execution_backend=effective_execution_backend,
     )
 
     return workspace_backend

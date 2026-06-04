@@ -2,6 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -78,6 +79,22 @@ class _FakeDeepAgentGraph:
         return self
 
 
+def _runtime_composite_backend(backend) -> CompositeBackend:
+    """Unwrap runtime audit/protection wrappers to inspect routed data-plane shape."""
+
+    current = backend
+    seen: set[int] = set()
+    while id(current) not in seen:
+        if isinstance(current, CompositeBackend):
+            return current
+        seen.add(id(current))
+        wrapped = getattr(current, "__wrapped_backend__", None)
+        if wrapped is None or wrapped is current:
+            break
+        current = wrapped
+    raise AssertionError(f"Expected a CompositeBackend in wrapper chain, got {type(backend)!r}")
+
+
 def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
@@ -88,12 +105,12 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
 
     user_data_dir = paths.sandbox_user_data_dir("thread-1", user_id="user-1")
-    assert isinstance(backend, CompositeBackend)
-    assert backend.default.cwd == user_data_dir.resolve()
-    assert "/mnt/skills/" in backend.routes
-    assert "/large_tool_results/" in backend.routes
-    assert "/conversation_history/" in backend.routes
-    assert "/mnt/user-data/tmp" in backend.routes
+    composite = _runtime_composite_backend(backend)
+    assert composite.default.cwd == user_data_dir.resolve()
+    assert "/mnt/skills/" in composite.routes
+    assert "/large_tool_results/" in composite.routes
+    assert "/conversation_history/" in composite.routes
+    assert "/mnt/user-data/tmp" in composite.routes
 
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
@@ -105,8 +122,8 @@ def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(t
         backend = lead_agent_module.build_backend(None, agent_name=None)
 
     default_user_data_dir = base_dir / "users" / "_default" / "threads" / "_default" / "user-data"
-    assert isinstance(backend, CompositeBackend)
-    assert backend.default.cwd == default_user_data_dir.resolve()
+    composite = _runtime_composite_backend(backend)
+    assert composite.default.cwd == default_user_data_dir.resolve()
 
 
 def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runtime(tmp_path):
@@ -155,8 +172,8 @@ def test_build_backend_execute_rewrites_runtime_skill_aliases(tmp_path):
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
-    assert isinstance(backend, CompositeBackend)
-    result = backend.default.execute("test -f /agents/dev/lead_agent/skills/bootstrap/SKILL.md && echo ok")
+    composite = _runtime_composite_backend(backend)
+    result = composite.default.execute("test -f /agents/dev/lead_agent/skills/bootstrap/SKILL.md && echo ok")
 
     assert result.exit_code == 0, result.output
     assert "ok" in result.output
@@ -470,14 +487,14 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
         paths=paths,
     )
 
-    assert isinstance(backend, CompositeBackend)
-    wrapped_default = getattr(backend.default, "__wrapped_backend__", backend.default)
+    composite = _runtime_composite_backend(backend)
+    wrapped_default = getattr(composite.default, "__wrapped_backend__", composite.default)
     assert wrapped_default is provider.sandbox
     assert provider.thread_id == "thread-1"
     assert provider.user_id == "user-1"
-    assert backend.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
-    assert backend.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
-    assert backend.routes["/mnt/user-data/tmp"].cwd == paths.runtime_tmp_dir.resolve()
+    assert composite.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
+    assert composite.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
+    assert composite.routes["/mnt/user-data/tmp"].cwd == paths.runtime_tmp_dir.resolve()
 
 
 def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp_path):
@@ -506,10 +523,14 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
     captured: dict[str, str] = {}
 
     class DummyRemoteBackend:
+        def __init__(self):
+            self.uploaded_paths: list[str] = []
+
         def download_files(self, requested_paths):
             return [type("Response", (), {"path": path, "content": None, "error": "file_not_found"})() for path in requested_paths]
 
         def upload_files(self, files):
+            self.uploaded_paths.extend(path for path, _content in files)
             return [type("Response", (), {"path": path, "error": None})() for path, _ in files]
 
     remote_backend = DummyRemoteBackend()
@@ -533,9 +554,55 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
             remote_session_id="remote-session-1",
         )
 
-    wrapped_backend = getattr(backend, "__wrapped_backend__", backend)
-    assert getattr(wrapped_backend, "__wrapped_backend__", wrapped_backend) is remote_backend
+    assert backend is not None
     assert captured["session_id"] == "remote-session-1"
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
+    assert f"{runtime_agent_root}/AGENTS.md" in remote_backend.uploaded_paths
+    assert f"{runtime_agent_root}/skills/bootstrap/SKILL.md" in remote_backend.uploaded_paths
+
+
+def test_build_backend_uses_request_remote_backend_for_seed(monkeypatch, tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+    request = replace(
+        _make_lead_agent_request(),
+        execution_backend="remote",
+        remote_session_id="request-remote-session",
+    )
+    captured: dict[str, str] = {}
+
+    class DummyRemoteBackend:
+        def __init__(self):
+            self.uploaded_paths: list[str] = []
+
+        def download_files(self, requested_paths):
+            return [type("Response", (), {"path": path, "content": None, "error": "file_not_found"})() for path in requested_paths]
+
+        def upload_files(self, files):
+            self.uploaded_paths.extend(path for path, _content in files)
+            return [type("Response", (), {"path": path, "error": None})() for path, _ in files]
+
+    remote_backend = DummyRemoteBackend()
+
+    def fake_build_remote_workspace_backend(*, session_id: str, paths: Paths | None = None):
+        captured["session_id"] = session_id
+        assert paths is not None
+        return remote_backend
+
+    monkeypatch.setattr(
+        "src.runtime_backends.factory.build_remote_workspace_backend",
+        fake_build_remote_workspace_backend,
+    )
+    monkeypatch.setattr("src.agents.lead_agent.agent.get_paths", lambda: paths)
+
+    backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
+
+    assert backend is not None
+    assert captured["session_id"] == "request-remote-session"
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
+    assert f"{runtime_agent_root}/AGENTS.md" in remote_backend.uploaded_paths
+    assert f"{runtime_agent_root}/skills/bootstrap/SKILL.md" in remote_backend.uploaded_paths
 
 
 def test_build_backend_remote_requires_session_id(tmp_path):
