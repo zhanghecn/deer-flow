@@ -123,6 +123,38 @@ subagents:
     assert validator["filesystem_enabled"] is False
 
 
+def test_subagent_filesystem_tool_subset_is_preserved(tmp_path: Path, monkeypatch):
+    cfg = tmp_path / "subagents.yaml"
+    cfg.write_text(
+        """
+version: 1
+subagents:
+  researcher:
+    description: search read-only evidence
+    system_prompt: do research
+    filesystem_enabled: true
+    filesystem_tool_names:
+      - glob
+      - grep
+      - read_file
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subagents_loader, "_resolve_subagents_path", lambda *_args, **_kwargs: cfg)
+
+    loaded = subagents_loader.load_subagent_specs(
+        [_dummy_web_search],
+        agent_config=AgentConfig(name="demo", status="dev"),
+        agent_status="dev",
+        model_name="demo-model",
+        model_supports_vision=False,
+    )
+
+    researcher = loaded.custom_subagents[0]
+    assert researcher["filesystem_enabled"] is True
+    assert researcher["filesystem_tool_names"] == ["glob", "grep", "read_file"]
+
+
 def test_unknown_tool_reference_raises(tmp_path: Path, monkeypatch):
     cfg = tmp_path / "subagents.yaml"
     cfg.write_text(

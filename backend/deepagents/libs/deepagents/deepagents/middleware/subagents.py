@@ -82,6 +82,9 @@ class SubAgent(TypedDict):
     explicit whitelist, while leaving general-purpose agents unchanged.
     """
 
+    filesystem_tool_names: NotRequired[Sequence[str]]
+    """Optional filesystem middleware tool allowlist for this subagent."""
+
     interrupt_on: NotRequired[dict[str, bool | InterruptOnConfig]]
     """Configure human-in-the-loop for specific tools."""
 

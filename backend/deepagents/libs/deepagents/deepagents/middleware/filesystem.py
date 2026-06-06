@@ -5,7 +5,7 @@ import asyncio
 import base64
 import concurrent.futures
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, cast
@@ -63,6 +63,27 @@ IMAGE_MEDIA_TYPES = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+FILESYSTEM_TOOL_NAMES = frozenset(
+    {
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "glob",
+        "grep",
+        "execute",
+    }
+)
+FILESYSTEM_TOOL_ORDER = (
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob",
+    "grep",
+    "execute",
+)
+FILESYSTEM_ONLY_TOOL_ORDER = tuple(name for name in FILESYSTEM_TOOL_ORDER if name != "execute")
 
 
 # Template for truncation message in read_file
@@ -342,6 +363,53 @@ Use this tool to run commands, scripts, tests, builds, and other shell operation
 - execute: run a shell command in the sandbox (returns output and exit code)"""
 
 
+def _build_filesystem_system_prompt(enabled_tool_names: frozenset[str]) -> str:
+    """Describe only the filesystem tools that were actually registered.
+
+    Subagent tool subsets are enforced by tool registration, but the model also
+    needs accurate capability text. Keeping this generated from the same
+    allowlist avoids a second prompt source drifting from the actual tool set.
+    """
+    enabled_filesystem_tools = [name for name in FILESYSTEM_ONLY_TOOL_ORDER if name in enabled_tool_names]
+    if not enabled_filesystem_tools:
+        return ""
+    if tuple(enabled_filesystem_tools) == FILESYSTEM_ONLY_TOOL_ORDER:
+        return FILESYSTEM_SYSTEM_PROMPT
+
+    descriptions = {
+        "ls": "list files in a directory",
+        "read_file": "read a file from the filesystem with pagination",
+        "write_file": "create a new file in the filesystem",
+        "edit_file": "edit an existing file after reading it",
+        "glob": "find files matching a path pattern",
+        "grep": "search literal text within files and return matching paths or lines",
+    }
+    tool_names_text = ", ".join(f"`{name}`" for name in enabled_filesystem_tools)
+    bullet_lines = "\n".join(f"- {name}: {descriptions[name]}" for name in enabled_filesystem_tools)
+    mutation_guidance = ""
+    if any(name in enabled_tool_names for name in ("write_file", "edit_file")):
+        mutation_guidance = "\n- Keep stateful mutations (`write_file`, `edit_file`) sequential when they touch related paths or depend on prior results."
+    return f"""## Following Conventions
+
+- Read files before editing when edit tools are available.
+- Mimic existing style, naming conventions, and patterns.
+- Prefer specialized tools over shell shortcuts for file operations.
+
+## Tool Usage and File Reading
+
+Follow tool docs. For large files, paginate with `offset`/`limit` and use the pagination metadata in `read_file` output to continue.
+
+## Filesystem Tools {tool_names_text}
+
+You have access to a filesystem through these registered tools only.
+All file paths must start with a /.
+
+{bullet_lines}
+
+Parallelism guidance:
+- Parallelize independent discovery work (`ls`, `glob`, `grep`, `read_file`) when those tools are available.{mutation_guidance}"""
+
+
 def _supports_execution(backend: BackendProtocol) -> bool:
     """Check if a backend supports command execution.
 
@@ -514,6 +582,10 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
             For execution support, use a backend that implements `SandboxBackendProtocol`.
         system_prompt: Optional custom system prompt override.
         custom_tool_descriptions: Optional custom tool descriptions override.
+        tool_names: Optional allowlist for filesystem middleware tools. Use
+            this for specialized subagents that should only see a subset such
+            as `glob`, `grep`, and `read_file`; omit it for the default full
+            filesystem surface.
         tool_token_limit_before_evict: Token limit before evicting a tool result to the
             filesystem.
 
@@ -549,6 +621,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
         backend: BACKEND_TYPES | None = None,
         system_prompt: str | None = None,
         custom_tool_descriptions: dict[str, str] | None = None,
+        tool_names: Sequence[str] | None = None,
         tool_token_limit_before_evict: int | None = 20000,
         max_execute_timeout: int = 3600,
     ) -> None:
@@ -559,6 +632,9 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 Defaults to StateBackend if not provided.
             system_prompt: Optional custom system prompt override.
             custom_tool_descriptions: Optional custom tool descriptions override.
+            tool_names: Optional filesystem tool allowlist. `None` preserves the
+                default full filesystem surface, while a list narrows the model-
+                visible tools for subagents that need a smaller capability set.
             tool_token_limit_before_evict: Optional token limit before evicting a tool result to the filesystem.
             max_execute_timeout: Maximum allowed value in seconds for per-command timeout
                 overrides on the execute tool.
@@ -572,24 +648,47 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
         if max_execute_timeout <= 0:
             msg = f"max_execute_timeout must be positive, got {max_execute_timeout}"
             raise ValueError(msg)
+        enabled_tool_names = self._normalize_tool_names(tool_names)
         # Use provided backend or default to StateBackend factory
         self.backend = backend if backend is not None else (StateBackend)
 
         # Store configuration (private - internal implementation details)
         self._custom_system_prompt = system_prompt
         self._custom_tool_descriptions = custom_tool_descriptions or {}
+        self._enabled_tool_names = enabled_tool_names
         self._tool_token_limit_before_evict = tool_token_limit_before_evict
         self._max_execute_timeout = max_execute_timeout
 
-        self.tools = [
-            self._create_ls_tool(),
-            self._create_read_file_tool(),
-            self._create_write_file_tool(),
-            self._create_edit_file_tool(),
-            self._create_glob_tool(),
-            self._create_grep_tool(),
-            self._create_execute_tool(),
-        ]
+        # Build tools from the canonical factory table so explicit subagent
+        # allowlists remove capabilities at registration time, not by prompt
+        # convention after the model has already seen the tool.
+        tool_factories: dict[str, Callable[[], BaseTool]] = {
+            "ls": self._create_ls_tool,
+            "read_file": self._create_read_file_tool,
+            "write_file": self._create_write_file_tool,
+            "edit_file": self._create_edit_file_tool,
+            "glob": self._create_glob_tool,
+            "grep": self._create_grep_tool,
+            "execute": self._create_execute_tool,
+        }
+        self.tools = [tool_factories[name]() for name in FILESYSTEM_TOOL_ORDER if name in enabled_tool_names]
+
+    @staticmethod
+    def _normalize_tool_names(tool_names: Sequence[str] | None) -> frozenset[str]:
+        """Return the explicit filesystem tool surface for this middleware.
+
+        The allowlist is a capability boundary used by subagents; invalid names
+        fail during graph construction so operators see configuration mistakes
+        before a runtime task starts.
+        """
+        if tool_names is None:
+            return FILESYSTEM_TOOL_NAMES
+        normalized = frozenset(str(name).strip() for name in tool_names if str(name).strip())
+        unknown = sorted(normalized - FILESYSTEM_TOOL_NAMES)
+        if unknown:
+            msg = f"Unknown filesystem tool name(s): {', '.join(unknown)}"
+            raise ValueError(msg)
+        return normalized
 
     def _get_backend(self, runtime: ToolRuntime[Any, Any]) -> BackendProtocol:
         """Get the resolved backend instance from backend or factory.
@@ -1176,13 +1275,13 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
             system_prompt = self._custom_system_prompt
         else:
             # Build dynamic system prompt based on available tools
-            prompt_parts = [FILESYSTEM_SYSTEM_PROMPT]
+            prompt_parts = [_build_filesystem_system_prompt(self._enabled_tool_names)]
 
             # Add execution instructions if execute tool is available
             if has_execute_tool and backend_supports_execution:
                 prompt_parts.append(EXECUTION_SYSTEM_PROMPT)
 
-            system_prompt = "\n\n".join(prompt_parts).strip()
+            system_prompt = "\n\n".join(part for part in prompt_parts if part).strip()
 
         if system_prompt:
             new_system_message = append_to_system_message(request.system_message, system_prompt)
@@ -1224,13 +1323,13 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
             system_prompt = self._custom_system_prompt
         else:
             # Build dynamic system prompt based on available tools
-            prompt_parts = [FILESYSTEM_SYSTEM_PROMPT]
+            prompt_parts = [_build_filesystem_system_prompt(self._enabled_tool_names)]
 
             # Add execution instructions if execute tool is available
             if has_execute_tool and backend_supports_execution:
                 prompt_parts.append(EXECUTION_SYSTEM_PROMPT)
 
-            system_prompt = "\n\n".join(prompt_parts).strip()
+            system_prompt = "\n\n".join(part for part in prompt_parts if part).strip()
 
         if system_prompt:
             new_system_message = append_to_system_message(request.system_message, system_prompt)

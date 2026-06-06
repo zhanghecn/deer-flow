@@ -102,6 +102,11 @@ def _build_subagent_spec(
         # subagents need a separate explicit switch from the normal tool
         # whitelist when they must be pure judges or validators.
         spec["filesystem_enabled"] = subagent.filesystem_enabled
+    if subagent.filesystem_tool_names is not None:
+        # This is a structured capability allowlist for middleware-owned file
+        # tools. It keeps domain agent configs from relying on prompt text to
+        # hide tools such as shell execution from specialized subagents.
+        spec["filesystem_tool_names"] = subagent.filesystem_tool_names
     if subagent.model is not None:
         # Agent archives store OpenAgents model IDs, not LangChain provider
         # strings. Resolve explicit subagent models through the project model

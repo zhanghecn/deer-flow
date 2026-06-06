@@ -172,6 +172,14 @@ class TestFilesystemMiddleware:
         ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
         assert ls_tool.description == "Custom ls tool description"
 
+    def test_init_with_tool_name_subset(self):
+        middleware = FilesystemMiddleware(tool_names=["glob", "grep", "read_file"])
+        assert [tool.name for tool in middleware.tools] == ["read_file", "glob", "grep"]
+
+    def test_init_with_unknown_tool_name_raises(self):
+        with pytest.raises(ValueError, match="Unknown filesystem tool"):
+            FilesystemMiddleware(tool_names=["read_file", "shell"])
+
     def test_ls_shortterm(self):
         state = FilesystemState(
             messages=[],

@@ -206,6 +206,7 @@ class AgentSubagentConfig(BaseModel):
     model: str | None = None
     tool_names: list[str] | None = None
     filesystem_enabled: bool | None = None
+    filesystem_tool_names: list[str] | None = None
     enabled: bool = True
 
     @model_validator(mode="after")
@@ -225,6 +226,11 @@ class AgentSubagentConfig(BaseModel):
         self.tool_names = _normalize_optional_string_list(
             self.tool_names,
             field_name=f"subagents[{self.name}].tool_names",
+            preserve_empty=True,
+        )
+        self.filesystem_tool_names = _normalize_optional_string_list(
+            self.filesystem_tool_names,
+            field_name=f"subagents[{self.name}].filesystem_tool_names",
             preserve_empty=True,
         )
         return self
@@ -359,6 +365,8 @@ def serialize_agent_subagent(subagent: AgentSubagentConfig) -> dict[str, Any]:
         payload["tool_names"] = subagent.tool_names
     if subagent.filesystem_enabled is not None:
         payload["filesystem_enabled"] = subagent.filesystem_enabled
+    if subagent.filesystem_tool_names is not None:
+        payload["filesystem_tool_names"] = subagent.filesystem_tool_names
     return payload
 
 

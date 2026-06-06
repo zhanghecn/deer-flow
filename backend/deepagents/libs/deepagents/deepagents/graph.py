@@ -308,7 +308,16 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
             # contract so they cannot bypass a supplied evidence bundle.
             subagent_filesystem_enabled = spec.get("filesystem_enabled", filesystem_enabled)
             if subagent_filesystem_enabled:
-                subagent_middleware.append(FilesystemMiddleware(backend=backend))
+                # `filesystem_tool_names` is a capability boundary for
+                # specialized subagents. It narrows model-visible file tools at
+                # registration time instead of relying on prompt text to ask a
+                # model not to use tools it can still see.
+                subagent_middleware.append(
+                    FilesystemMiddleware(
+                        backend=backend,
+                        tool_names=spec.get("filesystem_tool_names"),
+                    )
+                )
             subagent_middleware.extend(
                 [
                     create_summarization_middleware(summarization_model, backend),
