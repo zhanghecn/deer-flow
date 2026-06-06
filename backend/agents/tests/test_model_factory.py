@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
 from src.config.model_config import ModelConfig
 from src.models import factory as factory_module
 
@@ -76,6 +81,37 @@ def _gemini_level_model_config(**extra) -> ModelConfig:
     return ModelConfig.model_validate(payload)
 
 
+class SanitizerProbeChatModel(factory_module.BaseChatModel):
+    """Capture provider-bound messages for factory sanitizer regression tests."""
+
+    captured_messages: list[BaseMessage] = []
+
+    @property
+    def _llm_type(self) -> str:
+        return "sanitizer-probe"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.captured_messages = messages
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content=[
+                            {"type": "thinking", "signature": "sig-1", "index": 0},
+                            {"type": "text", "text": "done"},
+                        ]
+                    )
+                )
+            ]
+        )
+
+
 def test_create_chat_model_enables_anthropic_thinking_with_default_budget(monkeypatch):
     monkeypatch.setattr(
         factory_module,
@@ -87,6 +123,34 @@ def test_create_chat_model_enables_anthropic_thinking_with_default_budget(monkey
 
     assert model.max_tokens == factory_module.DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
     assert model.thinking == {"type": "enabled"}
+
+
+def test_create_chat_model_sanitizes_provider_blocks_at_model_boundary(monkeypatch):
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(use="tests.test_model_factory:SanitizerProbeChatModel"),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "resolve_class",
+        lambda *_args, **_kwargs: SanitizerProbeChatModel,
+    )
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+    response = model.invoke(
+        [
+            AIMessage(
+                content=[
+                    {"type": "thinking", "signature": "sig-1", "index": 0},
+                    {"type": "text", "text": "visible"},
+                ]
+            )
+        ]
+    )
+
+    assert model.captured_messages[0].content == [{"type": "text", "text": "visible"}]
+    assert response.content == [{"type": "text", "text": "done"}]
 
 
 def test_create_chat_model_scales_anthropic_budget_for_max_effort(monkeypatch):
@@ -501,3 +565,35 @@ def test_create_chat_model_attaches_explicit_max_input_tokens(monkeypatch):
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
 
     assert model.profile["max_input_tokens"] == 200_000
+
+
+def test_create_chat_model_preserves_profile_on_sanitizer_wrapper(monkeypatch):
+    class FakeModel(factory_module.BaseChatModel):
+        @property
+        def _llm_type(self) -> str:
+            return "fake-profile-model"
+
+        def _generate(
+            self,
+            messages: list[BaseMessage],
+            stop: list[str] | None = None,
+            run_manager: Any | None = None,
+            **kwargs: Any,
+        ) -> ChatResult:
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok"))])
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(max_input_tokens=200_000),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+
+    assert isinstance(model, factory_module.ProviderMessageSanitizingChatModel)
+    # Deep Agents summarization reads the wrapper's declared BaseChatModel field
+    # directly, so the token profile must live on the wrapper as well as the
+    # underlying provider model.
+    assert model.profile == {"max_input_tokens": 200_000}
+    assert model.wrapped.profile == {"max_input_tokens": 200_000}

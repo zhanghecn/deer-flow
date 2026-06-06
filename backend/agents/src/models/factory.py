@@ -11,7 +11,14 @@ from langchain_anthropic._client_utils import (
     _AsyncHttpxClientWrapper,
     _SyncHttpxClientWrapper,
 )
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import RunnableLambda
 
+from src.agents.middlewares.provider_message_sanitization_middleware import (
+    sanitize_message,
+    sanitize_messages,
+)
 from src.agents.middlewares.retry_utils import (
     DEFAULT_PROVIDER_MAX_RETRIES,
     note_provider_retry_exception,
@@ -531,6 +538,141 @@ def _instantiate_model(
         return model_class(**fallback_runtime_kwargs, **model_settings)
 
 
+class ProviderMessageSanitizingChatModel(BaseChatModel):
+    """Sanitize provider-native message blocks at the model boundary.
+
+    OpenAgents middleware protects the main agent graph, but Deep Agents builds
+    subagent graphs with their own middleware stack. Wrapping the model itself
+    keeps the same malformed-`thinking` cleanup active for main agents,
+    custom subagents, general-purpose subagents, and auxiliary model calls.
+    """
+
+    wrapped: BaseChatModel
+
+    @property
+    def _llm_type(self) -> str:
+        return f"openagents-sanitized:{self.wrapped._llm_type}"
+
+    @property
+    def _identifying_params(self) -> dict[str, Any]:
+        return getattr(self.wrapped, "_identifying_params", {})
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.wrapped, name)
+
+    def bind_tools(self, tools: Any, *, tool_choice: str | None = None, **kwargs: Any) -> Any:
+        if tool_choice is None:
+            bound = self.wrapped.bind_tools(tools, **kwargs)
+        else:
+            bound = self.wrapped.bind_tools(tools, tool_choice=tool_choice, **kwargs)
+        # create_agent calls bind_tools before invoking the provider. Sanitizing
+        # the bound runnable keeps subagents covered even though they do not
+        # inherit the main OpenAgents middleware stack.
+        return (
+            RunnableLambda(_sanitize_language_model_input)
+            | bound
+            | RunnableLambda(_sanitize_runnable_output)
+        )
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        result = self.wrapped._generate(
+            sanitize_messages(messages),
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        )
+        return _sanitize_chat_result(result)
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        result = await self.wrapped._agenerate(
+            sanitize_messages(messages),
+            stop=stop,
+            run_manager=run_manager,
+            **kwargs,
+        )
+        return _sanitize_chat_result(result)
+
+
+def _sanitize_chat_result(result: ChatResult) -> ChatResult:
+    """Return a ChatResult whose generations cannot persist bad blocks."""
+    changed = False
+    generations: list[ChatGeneration] = []
+    for generation in result.generations:
+        sanitized_messages = sanitize_messages([generation.message])
+        sanitized_message = sanitized_messages[0]
+        if sanitized_message is not generation.message:
+            changed = True
+            generation = generation.model_copy(update={"message": sanitized_message})
+        generations.append(generation)
+    if not changed:
+        return result
+    return result.model_copy(update={"generations": generations})
+
+
+def _sanitize_language_model_input(value: Any) -> Any:
+    """Sanitize common LangChain chat inputs before a bound model runnable."""
+    if isinstance(value, list) and all(isinstance(item, BaseMessage) for item in value):
+        return sanitize_messages(value)
+    if isinstance(value, tuple) and all(isinstance(item, BaseMessage) for item in value):
+        return sanitize_messages(list(value))
+    if hasattr(value, "to_messages"):
+        messages = value.to_messages()
+        if isinstance(messages, list) and all(isinstance(item, BaseMessage) for item in messages):
+            return sanitize_messages(messages)
+    return value
+
+
+def _sanitize_runnable_output(value: Any) -> Any:
+    """Sanitize final runnable messages returned after tool binding."""
+    if isinstance(value, BaseMessage):
+        return sanitize_message(value)
+    if isinstance(value, list) and all(isinstance(item, BaseMessage) for item in value):
+        return sanitize_messages(value)
+    return value
+
+
+def _wrap_model_with_provider_sanitizer(model_instance: BaseChatModel) -> BaseChatModel:
+    """Attach request/response cleanup once for every factory-created model."""
+    if not isinstance(model_instance, BaseChatModel):
+        return model_instance
+    if isinstance(model_instance, ProviderMessageSanitizingChatModel):
+        return model_instance
+    wrapper_kwargs: dict[str, Any] = {
+        "wrapped": model_instance,
+    }
+    for field_name in (
+        "name",
+        "cache",
+        "callbacks",
+        "tags",
+        "metadata",
+        "custom_get_token_ids",
+        "rate_limiter",
+        "disable_streaming",
+        "output_version",
+        "profile",
+    ):
+        field_value = getattr(model_instance, field_name, None)
+        if field_value is not None:
+            wrapper_kwargs[field_name] = field_value
+    # LangChain middleware reads BaseChatModel pydantic fields directly from the
+    # wrapper, so __getattr__ is not enough for fields such as profile. Mirror
+    # the provider model's runtime metadata to preserve token-limit decisions.
+    return ProviderMessageSanitizingChatModel(**wrapper_kwargs)
+
+
 def create_chat_model(
     *,
     name: str | None = None,
@@ -579,5 +721,6 @@ def create_chat_model(
 
     _attach_explicit_profile_limits(model_instance, model_config)
     _attach_anthropic_http_retry_observers(model_instance)
-    _attach_langsmith_tracing(model_instance, name)
-    return model_instance
+    sanitized_model = _wrap_model_with_provider_sanitizer(model_instance)
+    _attach_langsmith_tracing(sanitized_model, name)
+    return sanitized_model
