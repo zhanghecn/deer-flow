@@ -1304,6 +1304,99 @@ func TestExecuteTurnStoresCanceledSnapshotWhenClientContextCancels(t *testing.T)
 	}
 }
 
+func TestStreamTurnEnrichesRedactedStreamErrorFromTaskState(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	stateCalls := 0
+	providerError := "APIStatusError(\"Error code: 402 - {'error': {'type': 'invalid_request_error', 'message': 'Insufficient Balance (request id: req-402)'}, 'type': 'error'}\")"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/threads/thread-1/state":
+			stateCalls++
+			w.Header().Set("Content-Type", "application/json")
+			if stateCalls == 1 {
+				_, _ = io.WriteString(w, `{"values":{"messages":[]},"tasks":[]}`)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"values":{"messages":[]},"tasks":[{"error":%q}]}`, providerError)
+		case r.Method == http.MethodPost && r.URL.Path == "/threads/thread-1/runs/stream":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: error\n")
+			_, _ = io.WriteString(w, `data: {"error":"APIStatusError","message":"An internal error occurred"}`+"\n\n")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	svc := &PublicAPIService{
+		invocationRepo: invocationRepo,
+		langGraphURL:   server.URL,
+		httpClient:     server.Client(),
+		fs:             storage.NewFS(t.TempDir()),
+	}
+	plan := &publicAPIRunPlan{
+		Auth: PublicAPIAuthContext{
+			UserID:     userID,
+			APITokenID: tokenID,
+		},
+		Invocation: &model.PublicAPIInvocation{
+			ID:           uuid.New(),
+			ResponseID:   "turn_redacted",
+			Surface:      "turns",
+			APITokenID:   tokenID,
+			UserID:       userID,
+			AgentName:    "demo-agent",
+			ThreadID:     "thread-1",
+			RequestModel: "kimi-k2.5",
+			Status:       "in_progress",
+			RequestJSON:  json.RawMessage(`{"agent":"demo-agent","input":{"text":"hi"}}`),
+			ResponseJSON: json.RawMessage(`{}`),
+			CreatedAt:    time.Unix(42, 0).UTC(),
+		},
+		AgentName:  "demo-agent",
+		ModelName:  "kimi-k2.5",
+		ThreadID:   "thread-1",
+		ResponseID: "turn_redacted",
+		PromptText: "hi",
+	}
+	var emitted []model.TurnEvent
+	_, err := svc.executeTurn(context.Background(), plan, newTurnCollector("turn_redacted"), func(event model.TurnEvent) error {
+		emitted = append(emitted, event)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected executeTurn to fail")
+	}
+	if stateCalls < 2 {
+		t.Fatalf("expected stream failure to fetch task state, got %d state calls", stateCalls)
+	}
+	if len(emitted) == 0 || emitted[len(emitted)-1].Type != model.TurnEventTurnFailed {
+		t.Fatalf("expected emitted terminal failure, got %#v", emitted)
+	}
+	if got := emitted[len(emitted)-1].Error; !strings.Contains(got, "Insufficient Balance") || !strings.Contains(got, "402") {
+		t.Fatalf("expected provider task error in emitted failure, got %q", got)
+	}
+
+	stored := invocationRepo.byResponseID["turn_redacted"]
+	if stored == nil || stored.Status != "failed" {
+		t.Fatalf("expected stored failed invocation, got %#v", stored)
+	}
+	var snapshot model.TurnSnapshot
+	if err := json.Unmarshal(stored.ResponseJSON, &snapshot); err != nil {
+		t.Fatalf("unmarshal stored snapshot: %v", err)
+	}
+	if len(snapshot.Events) == 0 {
+		t.Fatalf("expected stored snapshot events, got %#v", snapshot)
+	}
+	if got := snapshot.Events[len(snapshot.Events)-1].Error; !strings.Contains(got, "Insufficient Balance") || !strings.Contains(got, "402") {
+		t.Fatalf("expected provider task error in stored snapshot, got %q", got)
+	}
+}
+
 func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *testing.T) {
 	t.Parallel()
 

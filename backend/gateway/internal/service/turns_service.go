@@ -817,6 +817,7 @@ func (s *PublicAPIService) executeTurn(
 		if isPublicAPITurnCancelError(streamErr) {
 			return s.finishCanceledTurn(ctx, plan, collector, onEvent)
 		}
+		streamErr = s.enrichTurnStreamErrorFromState(ctx, plan, streamErr)
 		return nil, s.failTurnExecution(
 			ctx,
 			plan,
@@ -1013,6 +1014,33 @@ func (s *PublicAPIService) turnWasExternallyCanceled(
 		return false, err
 	}
 	return invocation.Status == "canceled", nil
+}
+
+func (s *PublicAPIService) enrichTurnStreamErrorFromState(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	streamErr error,
+) error {
+	if streamErr == nil || plan == nil {
+		return streamErr
+	}
+	// LangGraph can redact the SSE `error` event while keeping the concrete
+	// provider/runtime failure in thread `tasks[].error`. Fetching state here is
+	// protocol-level diagnostics for `/v1/turns`, not model-output semantics.
+	statePayload, err := s.fetchThreadState(
+		detachedPublicAPIPersistenceContext(ctx),
+		plan.Auth.UserID,
+		plan.ThreadID,
+		plan.AgentName,
+		plan.ModelName,
+	)
+	if err != nil {
+		return streamErr
+	}
+	if taskError := strings.TrimSpace(extractLatestTaskError(statePayload)); taskError != "" {
+		return fmt.Errorf("%s", taskError)
+	}
+	return streamErr
 }
 
 func (s *PublicAPIService) CreateTurn(
