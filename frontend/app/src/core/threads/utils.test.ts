@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentThread } from "./types";
 import {
+  buildCurrentBrowserPath,
   buildCurrentPath,
   buildThreadCompletionNotificationBody,
   buildThreadPath,
@@ -169,6 +170,23 @@ describe("thread runtime utils", () => {
         new URLSearchParams("agent_status=prod&mock=true"),
       ),
     ).toBe("/workspace/chats/thread-1?agent_status=prod&mock=true");
+  });
+
+  it("reads the live browser path when async stream callbacks clear pending routes", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/workspace/agents/reviewer/chats/thread-1?agent_status=prod&pending_run=1",
+    );
+
+    expect(
+      buildCurrentBrowserPath(
+        "/workspace/agents/reviewer/chats/thread-1",
+        new URLSearchParams("agent_status=prod"),
+      ),
+    ).toBe(
+      "/workspace/agents/reviewer/chats/thread-1?agent_status=prod&pending_run=1",
+    );
   });
 
   it("extracts thread ids from lead and agent chat routes", () => {

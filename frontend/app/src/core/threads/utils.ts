@@ -144,6 +144,23 @@ export function buildCurrentPath(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+export function buildCurrentBrowserPath(
+  fallbackPathname: string,
+  fallbackSearchParams: Pick<URLSearchParams, "toString">,
+) {
+  if (typeof window === "undefined") {
+    return buildCurrentPath(fallbackPathname, fallbackSearchParams);
+  }
+
+  // Stream terminal callbacks run after navigation to `pending_run=1`; React
+  // router props captured by the submitting render can be stale, so compare
+  // against the browser's current URL before deciding whether to replace it.
+  return buildCurrentPath(
+    window.location.pathname,
+    new URLSearchParams(window.location.search),
+  );
+}
+
 export function pathOfThread(
   threadOrId:
     | string

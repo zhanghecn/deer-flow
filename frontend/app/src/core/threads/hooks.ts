@@ -1426,6 +1426,39 @@ export function useThreadStream({
       windowActivationId,
     ],
   );
+  const finalizeLiveRunError = useCallback(
+    (error: unknown, resolvedThreadId?: string | null) => {
+      const surfacedMessage = notifyThreadError(error);
+      if (surfacedMessage === null) {
+        return;
+      }
+
+      terminalStateNotifiedRef.current = true;
+      setPendingRecoveryLoading(false);
+      const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
+      clearLocalActiveRunOwnership(activeThreadId);
+      clearStoredActiveRunId(activeThreadId);
+      if (activeThreadId) {
+        // Stream-level errors are terminal for this live run. Release local
+        // recovery ownership so the route can drop `pending_run=1` and future
+        // reloads hydrate normal failed state instead of rejoining a dead run.
+        deferStateHydrationRef.current = false;
+        lastHydrationActivationRef.current = windowActivationId;
+        manualHistorySeedRef.current = false;
+        setHistoryEnabled(true);
+      }
+      onStop?.(null);
+      void invalidateThreadSearchCaches(queryClient);
+    },
+    [
+      notifyThreadError,
+      onStop,
+      queryClient,
+      streamThreadId,
+      threadId,
+      windowActivationId,
+    ],
+  );
   const thread = useStream<
     AgentThreadState,
     { InterruptType: AgentInterruptValue }
@@ -1496,7 +1529,7 @@ export function useThreadStream({
       finalizeRecoveredRun(state.values, streamThreadId ?? threadId ?? null);
     },
     onError(error) {
-      notifyThreadError(error);
+      finalizeLiveRunError(error, streamThreadId ?? threadId ?? null);
     },
   });
 
@@ -1646,12 +1679,12 @@ export function useThreadStream({
         setActiveRunRecoveryVersion((version) => version + 1);
         return;
       }
-      notifyThreadError(error);
+      finalizeLiveRunError(error, threadId);
     });
   }, [
     authenticated,
+    finalizeLiveRunError,
     isThreadReady,
-    notifyThreadError,
     thread.isLoading,
     threadId,
   ]);
@@ -1958,10 +1991,22 @@ export function useThreadStream({
       extraContext?: Record<string, unknown>,
     ) => {
       if (!authenticated) {
-        throw new Error("Authentication is required before submitting a run.");
+        const error = new Error(
+          "Authentication is required before submitting a run.",
+        );
+        // Preflight failures occur before optimistic messages or run ownership
+        // exist, so surface them directly instead of relying on submit cleanup.
+        notifyThreadError(error);
+        throw error;
       }
 
-      const selectedModelName = requireModelName(resolvedContext);
+      let selectedModelName: string;
+      try {
+        selectedModelName = requireModelName(resolvedContext);
+      } catch (error) {
+        notifyThreadError(error);
+        throw error;
+      }
       const text = message.text.trim();
       const files = message.files ?? [];
 
@@ -2097,10 +2142,22 @@ export function useThreadStream({
       extraContext?: Record<string, unknown>,
     ) => {
       if (!authenticated) {
-        throw new Error("Authentication is required before resuming a run.");
+        const error = new Error(
+          "Authentication is required before resuming a run.",
+        );
+        // Resume preflight errors have no active run to clean up, but they must
+        // still render as inline execution failures.
+        notifyThreadError(error);
+        throw error;
       }
 
-      const selectedModelName = requireModelName(resolvedContext);
+      let selectedModelName: string;
+      try {
+        selectedModelName = requireModelName(resolvedContext);
+      } catch (error) {
+        notifyThreadError(error);
+        throw error;
+      }
       terminalStateNotifiedRef.current = false;
       manualHistorySeedRef.current = false;
       // Resumes are live run ownership from the UI's perspective; keep state
@@ -2285,7 +2342,6 @@ export function useThreadStream({
         values: effectiveValues,
         messages: effectiveMessages,
         interrupt: effectiveInterrupt,
-        isLoading: mergedThread.isLoading || pendingRecoveryLoading,
         history: canUseThreadHistory
           ? effectiveHistory
           : (threadOverride?.history ?? []),
@@ -2293,6 +2349,13 @@ export function useThreadStream({
           ? (threadOverride?.experimental_branchTree ??
             getExperimentalBranchTree(mergedThread))
           : undefined,
+        // SDK streams can remain marked loading after a terminal provider
+        // error while recovery/join state catches up. Once this hook has a
+        // terminal status, the workspace must become usable again.
+        isLoading:
+          executionStatus?.terminal === true
+            ? false
+            : mergedThread.isLoading || pendingRecoveryLoading,
         stop: stopRun,
       }),
     [
@@ -2301,6 +2364,7 @@ export function useThreadStream({
       effectiveMessages,
       effectiveValues,
       canUseThreadHistory,
+      executionStatus?.terminal,
       mergedThread,
       pendingRecoveryLoading,
       stopRun,

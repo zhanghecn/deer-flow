@@ -40,6 +40,7 @@ import {
 } from "@/core/threads/hooks";
 import { useThreadRuntime } from "@/core/threads/query-hooks";
 import {
+  buildCurrentBrowserPath,
   buildCurrentPath,
   buildThreadCompletionNotificationBody,
   buildThreadPath,
@@ -214,7 +215,7 @@ export default function AgentChatPage() {
 
     setIsPendingRun(false);
     const nextPath = buildThreadPath(runtimeSelection, threadId, { isMock });
-    const currentPath = buildCurrentPath(pathname, searchParams);
+    const currentPath = buildCurrentBrowserPath(pathname, searchParams);
     if (nextPath !== currentPath) {
       void navigate(nextPath, { replace: true });
     }

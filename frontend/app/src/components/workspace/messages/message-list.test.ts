@@ -198,6 +198,33 @@ describe("subtask aggregate state", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows execution failures even while empty thread history is still loading", () => {
+    render(
+      React.createElement(MessageList, {
+        threadId: "thread-1",
+        thread: {
+          messages: [],
+          isLoading: false,
+          isThreadLoading: true,
+        } as never,
+        executionStatus: {
+          event: "failed",
+          phase: "run_terminal",
+          phase_kind: "run",
+          started_at: "2026-04-14T10:00:00Z",
+          run_started_at: "2026-04-14T10:00:00Z",
+          finished_at: "2026-04-14T10:00:04Z",
+          error: "429 Too Many Requests",
+          terminal: true,
+        },
+        paddingBottom: 0,
+      }),
+    );
+
+    expect(screen.getByText("Run failed")).toBeInTheDocument();
+    expect(screen.getByText("429 Too Many Requests")).toBeInTheDocument();
+  });
+
   it("hides execution status while a question interrupt is waiting for input", () => {
     render(
       React.createElement(MessageList, {

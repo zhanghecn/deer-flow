@@ -604,6 +604,48 @@ describe("useThreadStream", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("surfaces submit preflight failures before a run is created", async () => {
+    mockLocalSettingsContext = {
+      model_name: undefined,
+      mode: "pro",
+      effort: "high",
+      agent_status: "dev",
+    };
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: undefined,
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const message: PromptInputMessage = {
+      text: "hello",
+      files: [],
+    };
+
+    await act(async () => {
+      await expect(result.current[1]("thread-1", message)).rejects.toThrow(
+        "No model is configured",
+      );
+    });
+
+    expect(streamState.submit).not.toHaveBeenCalled();
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      error:
+        "No model is configured. Add or select a model before starting a chat.",
+      terminal: true,
+    });
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("keeps subagents enabled when stale local settings disabled them", async () => {
     mockLocalSettingsContext = {
       ...mockLocalSettingsContext,
@@ -860,6 +902,55 @@ describe("useThreadStream", () => {
       error: "400 provider failed",
       terminal: true,
     });
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("finalizes live stream errors and releases the pending run route state", async () => {
+    streamState = makeThreadState({ isLoading: true });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-live-error");
+    const onError = vi.fn();
+    const onStop = vi.fn();
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onError,
+          onStop,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const errorHandler = latestUseStreamOptions?.onError;
+    expect(typeof errorHandler).toBe("function");
+    if (typeof errorHandler !== "function") {
+      throw new Error("Expected onError callback to be registered.");
+    }
+
+    await act(async () => {
+      errorHandler(new Error("429 Too Many Requests"));
+      await Promise.resolve();
+    });
+
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      error: "429 Too Many Requests",
+      terminal: true,
+    });
+    expect(result.current[0].isLoading).toBe(false);
+    expect(
+      window.sessionStorage.getItem("openagents:stream-owner:thread-1"),
+    ).toBeNull();
+    expect(window.sessionStorage.getItem("lg:stream:thread-1")).toBeNull();
+    expect(onStop).toHaveBeenCalledWith(null);
+    expect(onError).toHaveBeenCalledWith("429 Too Many Requests");
     expect(toastError).not.toHaveBeenCalled();
   });
 

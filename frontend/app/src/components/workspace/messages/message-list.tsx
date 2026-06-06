@@ -885,7 +885,11 @@ export function MessageList({
     });
   }, [lastTurnAnchorMessageId, lastTurnTaskIds]);
 
-  if (thread.isThreadLoading && messages.length === 0) {
+  if (
+    thread.isThreadLoading &&
+    messages.length === 0 &&
+    !visibleExecutionStatus
+  ) {
     return <MessageListSkeleton />;
   }
   return (
