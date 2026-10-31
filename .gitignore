@@ -36,6 +36,7 @@ coverage/
 .openagents/threads/
 .openagents/users/
 .openagents/custom/
+.openagents/mcp-profiles/
 .claude/
 skills/custom/*
 logs/
