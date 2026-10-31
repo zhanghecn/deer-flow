@@ -153,6 +153,91 @@ def test_create_chat_model_sanitizes_provider_blocks_at_model_boundary(monkeypat
     assert response.content == [{"type": "text", "text": "done"}]
 
 
+def test_sanitizing_wrapper_bind_tools_pipeline_tolerates_bound_model_settings():
+    """The bind_tools pipeline must survive `.bind(**model_settings)` combos.
+
+    Appending `.bind()` to the sanitized pipeline feeds bound kwargs into every
+    pipeline step, so the sanitize lambdas must accept (and ignore) them instead
+    of crashing. RunnableSequence itself does not forward those kwargs to inner
+    steps; callers that need settings on the model must pass them through
+    `bind_tools(**model_settings)` as create_agent does.
+    """
+
+    class SettingsProbeChatModel(SanitizerProbeChatModel):
+        def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
+            return self
+
+    probe = SettingsProbeChatModel()
+    wrapper = factory_module.ProviderMessageSanitizingChatModel(wrapped=probe)
+    tools = [
+        {
+            "type": "tool",
+            "name": "calc",
+            "description": "calculate",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+    bound = wrapper.bind_tools(tools).bind(thinking={"type": "enabled"})
+
+    response = bound.invoke(
+        [
+            AIMessage(
+                content=[
+                    {"type": "thinking", "signature": "sig-1", "index": 0},
+                    {"type": "text", "text": "visible"},
+                ]
+            )
+        ]
+    )
+
+    assert response.content == [{"type": "text", "text": "done"}]
+    assert probe.captured_messages[0].content == [{"type": "text", "text": "visible"}]
+
+
+def test_sanitizing_wrapper_bind_tools_forwards_model_settings_to_wrapped_model():
+    """create_agent passes model settings through bind_tools kwargs.
+
+    langchain.agents.factory binds tools with `request.model.bind_tools(final_tools,
+    tool_choice=..., **request.model_settings)`, so the wrapper must forward those
+    settings to the wrapped model while still sanitizing message history.
+    """
+
+    class ForwardingProbeChatModel(SanitizerProbeChatModel):
+        captured_bind_kwargs: dict[str, Any] = {}
+
+        def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
+            self.captured_bind_kwargs = dict(kwargs)
+            return self
+
+    probe = ForwardingProbeChatModel()
+    wrapper = factory_module.ProviderMessageSanitizingChatModel(wrapped=probe)
+    tools = [
+        {
+            "type": "tool",
+            "name": "calc",
+            "description": "calculate",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+
+    pipeline = wrapper.bind_tools(tools, tool_choice=None, thinking={"type": "enabled"})
+
+    response = pipeline.invoke(
+        [
+            AIMessage(
+                content=[
+                    {"type": "thinking", "signature": "sig-1", "index": 0},
+                    {"type": "text", "text": "visible"},
+                ]
+            )
+        ]
+    )
+
+    assert response.content == [{"type": "text", "text": "done"}]
+    assert probe.captured_bind_kwargs.get("thinking") == {"type": "enabled"}
+    assert probe.captured_messages[0].content == [{"type": "text", "text": "visible"}]
+
+
 def test_create_chat_model_scales_anthropic_budget_for_max_effort(monkeypatch):
     monkeypatch.setattr(
         factory_module,

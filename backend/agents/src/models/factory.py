@@ -621,8 +621,13 @@ def _sanitize_chat_result(result: ChatResult) -> ChatResult:
     return result.model_copy(update={"generations": generations})
 
 
-def _sanitize_language_model_input(value: Any) -> Any:
-    """Sanitize common LangChain chat inputs before a bound model runnable."""
+def _sanitize_language_model_input(value: Any, **_kwargs: Any) -> Any:
+    """Sanitize common LangChain chat inputs before a bound model runnable.
+
+    ``**_kwargs`` absorbs settings applied by ``.bind(**model_settings)`` on the
+    pipeline; RunnableBinding delivers them to the wrapped model itself, so the
+    sanitizer only needs to ignore them here.
+    """
     if isinstance(value, list) and all(isinstance(item, BaseMessage) for item in value):
         return sanitize_messages(value)
     if isinstance(value, tuple) and all(isinstance(item, BaseMessage) for item in value):
@@ -634,8 +639,12 @@ def _sanitize_language_model_input(value: Any) -> Any:
     return value
 
 
-def _sanitize_runnable_output(value: Any) -> Any:
-    """Sanitize final runnable messages returned after tool binding."""
+def _sanitize_runnable_output(value: Any, **_kwargs: Any) -> Any:
+    """Sanitize final runnable messages returned after tool binding.
+
+    ``**_kwargs`` absorbs bound model settings for the same reason as
+    ``_sanitize_language_model_input``.
+    """
     if isinstance(value, BaseMessage):
         return sanitize_message(value)
     if isinstance(value, list) and all(isinstance(item, BaseMessage) for item in value):
